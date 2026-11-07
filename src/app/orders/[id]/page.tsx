@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/field";
+import { NativeSelect } from "@/components/native-select";
 import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { formatDate, formatWhen, fulfillmentLabel, one, sameOrder } from "@/lib/format";
-import { loadShop } from "@/lib/inventory/load";
+import { loadShop, variantLabel } from "@/lib/inventory/load";
 import { markLineBuilt, markOrderBuilt } from "@/server/actions/orders";
 
 export default function OrderPage({ params, searchParams }: PageProps<"/orders/[id]">) {
@@ -17,6 +18,35 @@ export default function OrderPage({ params, searchParams }: PageProps<"/orders/[
     <Suspense fallback={<Loading label="Loading order" />}>
       <OrderScreen params={params} searchParams={searchParams} />
     </Suspense>
+  );
+}
+
+function BlankOverride({
+  line,
+  shop,
+}: {
+  line: { needs: { materialId: string; role: string }[] };
+  shop: Awaited<ReturnType<typeof loadShop>>;
+}) {
+  const blankNeed = line.needs.find((need) => need.role === "blank");
+  const variant = blankNeed
+    ? shop.blankVariantRows.find((entry) => entry.id === blankNeed.materialId)
+    : undefined;
+  if (!variant) return null;
+  const choices = shop.blankVariantRows.filter(
+    (entry) => entry.materialId === variant.materialId && !entry.archivedAt,
+  );
+  const model = shop.materialRows.find((entry) => entry.id === variant.materialId);
+  return (
+    <Field label="Blank for this build" hint="Changes this build only. The recipe stays the same.">
+      <NativeSelect name="blankVariantId" defaultValue={variant.id}>
+        {choices.map((choice) => (
+          <option key={choice.id} value={choice.id}>
+            {variantLabel(model?.name ?? "Blank", choice.size, choice.color)}
+          </option>
+        ))}
+      </NativeSelect>
+    </Field>
   );
 }
 
@@ -111,6 +141,7 @@ async function OrderScreen({
                       className="w-28"
                     />
                   </Field>
+                  <BlankOverride line={line} shop={shop} />
                   <Button type="submit">Mark built</Button>
                 </form>
               ) : null}

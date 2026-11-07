@@ -22,43 +22,21 @@ const sweatpants = "gid://shopify/Product/9002";
 
 export const exampleInput: ReportInput = {
   materials: [
-    { id: printA, name: "Print A", type: "print", size: null, color: null, unit: "each" },
-    { id: printB, name: "Print B", type: "print", size: null, color: null, unit: "each" },
-    { id: blankS, name: "Blank Shorts S", type: "blank", size: "S", color: null, unit: "each" },
-    { id: blankM, name: "Blank Shorts M", type: "blank", size: "M", color: null, unit: "each" },
-    { id: blankL, name: "Blank Shorts L", type: "blank", size: "L", color: null, unit: "each" },
-    {
-      id: blankYouthS,
-      name: "Blank Shorts YOUTH S",
-      type: "blank",
-      size: "YOUTH S",
-      color: null,
-      unit: "each",
-    },
-    {
-      id: blankSweatS,
-      name: "Blank Sweatpants S / Black",
-      type: "blank",
-      size: "S",
-      color: "Black",
-      unit: "each",
-    },
-    {
-      id: blankSweatYouthL,
-      name: "Blank Sweatpants YOUTH L / Black",
-      type: "blank",
-      size: "YOUTH L",
-      color: "Black",
-      unit: "each",
-    },
-    {
-      id: transfer,
-      name: "Heat transfer sheet",
-      type: "other",
-      size: null,
-      color: null,
-      unit: "sheet",
-    },
+    stock(printA, "Print A", "print", null, null, "each", { modelId: printA, modelName: "Print A", seriesName: "PTF Uniforms 2026" }),
+    stock(printB, "Print B", "print", null, null, "each", { modelId: printB, modelName: "Print B", seriesName: "PTF Uniforms 2026" }),
+    stock(blankS, "Gildan 64000 · S / Black", "blank", "S", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock(blankM, "Gildan 64000 · M / Black", "blank", "M", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock(blankL, "Gildan 64000 · L / Black", "blank", "L", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock(blankYouthS, "Gildan 64000 · YS / Black", "blank", "YS", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock(blankSweatS, "Pocketed Sweatpants · S / Black", "blank", "S", "Black", "each", {
+      modelId: "mat_sweat",
+      modelName: "Pocketed Sweatpants",
+    }),
+    stock(blankSweatYouthL, "Pocketed Sweatpants · YL / Black", "blank", "YL", "Black", "each", {
+      modelId: "mat_sweat",
+      modelName: "Pocketed Sweatpants",
+    }),
+    stock(transfer, "Heat transfer sheet", "other", null, null, "sheet", { modelId: transfer, modelName: "Heat transfer sheet" }),
   ],
   movements: [
     { materialId: printA, quantity: 17 },
@@ -151,6 +129,18 @@ export const exampleInput: ReportInput = {
     },
   ],
 };
+
+function stock(
+  id: string,
+  name: string,
+  type: string,
+  size: string | null,
+  color: string | null,
+  unit: string,
+  extra: { modelId: string; modelName: string; seriesName?: string | null },
+): ReportInput["materials"][number] {
+  return { id, name, type, size, color, unit, ...extra };
+}
 
 function variant(
   productId: string,

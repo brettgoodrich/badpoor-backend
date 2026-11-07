@@ -3,13 +3,14 @@
 import { eq } from "drizzle-orm";
 import { redirectWith, refreshShop } from "@/lib/action";
 import { getDb } from "@/lib/db";
-import { builds, movements, recipeLines, recipes, shopifyLineItems, shopifyOrders } from "@/lib/db/schema";
+import { builds, materialVariants, movements, recipeLines, recipes, shopifyLineItems, shopifyOrders } from "@/lib/db/schema";
 import { orderPath, readString } from "@/lib/format";
+import { consumptionForBuild } from "@/lib/inventory/calculations";
 import { resolveRecipeId } from "@/lib/inventory/matching";
 
 type Database = Awaited<ReturnType<typeof getDb>>;
 
-function recordBuild(database: Database, lineItemId: string, quantity: number, note: string) {
+function recordBuild(database: Database, lineItemId: string, quantity: number, note: string, blankOverrideId: string | null) {
   database.transaction((tx) => {
     const line = tx.select().from(shopifyLineItems).where(eq(shopifyLineItems.id, lineItemId)).get();
     if (!line) throw new Error("That line is not in the local order copy.");
@@ -47,6 +48,26 @@ function recordBuild(database: Database, lineItemId: string, quantity: number, n
     if (!recipe) throw new Error(`${line.name} has no recipe yet, so it was not marked built.`);
     const lines = tx.select().from(recipeLines).where(eq(recipeLines.recipeId, recipe.id)).all();
     if (lines.length === 0) throw new Error("That recipe has no materials.");
+    const blankLine = lines.find((entry) => entry.role === "blank" && entry.variantId);
+    let consumedBlankId = blankLine?.variantId ?? null;
+    if (blankOverrideId) {
+      const override = tx.select().from(materialVariants).where(eq(materialVariants.id, blankOverrideId)).get();
+      if (!override || override.archivedAt) throw new Error("That blank variant is not available.");
+      if (blankLine && override.materialId !== blankLine.materialId) {
+        throw new Error("Pick a size and color from the same blank model.");
+      }
+      consumedBlankId = override.id;
+    }
+
+    const consumed = consumptionForBuild(
+      lines.map((entry) => ({
+        materialId: entry.variantId ?? entry.materialId,
+        quantity: entry.quantity,
+        role: entry.role,
+      })),
+      quantity,
+      blankOverrideId && blankOverrideId !== blankLine?.variantId ? blankOverrideId : null,
+    );
 
     const buildId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -60,18 +81,20 @@ function recordBuild(database: Database, lineItemId: string, quantity: number, n
         lineItemId,
         quantity,
         note: detail,
+        blankVariantId: consumedBlankId,
         createdAt: now,
       })
       .run();
 
-    for (const recipeLine of lines) {
-      if (recipeLine.quantity <= 0) continue;
+    for (const consumedLine of consumed) {
+      const variant = tx.select().from(materialVariants).where(eq(materialVariants.id, consumedLine.materialId)).get();
       tx.insert(movements)
         .values({
           id: crypto.randomUUID(),
-          materialId: recipeLine.materialId,
+          materialId: variant?.materialId ?? consumedLine.materialId,
+          variantId: variant?.id ?? null,
           type: "consume",
-          quantity: -recipeLine.quantity * quantity,
+          quantity: consumedLine.quantity,
           note: detail,
           buildId,
           createdAt: now,
@@ -90,7 +113,7 @@ export async function markLineBuilt(formData: FormData) {
 
   const database = await getDb();
   try {
-    recordBuild(database, lineItemId, quantity, readString(formData, "note"));
+    recordBuild(database, lineItemId, quantity, readString(formData, "note"), readString(formData, "blankVariantId") || null);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not record the build.";
     redirectWith(back, "error", message);
@@ -145,7 +168,7 @@ export async function markOrderBuilt(formData: FormData) {
 
   try {
     for (const target of targets) {
-      recordBuild(database, target.id, target.quantity, "");
+      recordBuild(database, target.id, target.quantity, "", null);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not record the build.";

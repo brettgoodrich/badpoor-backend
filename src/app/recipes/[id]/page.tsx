@@ -9,7 +9,7 @@ import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { RecipeLinesForm } from "@/components/recipe-lines-form";
 import { one } from "@/lib/format";
-import { loadShop } from "@/lib/inventory/load";
+import { loadShop, stockChoices } from "@/lib/inventory/load";
 import { deleteRecipe, updateRecipe } from "@/server/actions/recipes";
 
 export default function RecipePage({ params, searchParams }: PageProps<"/recipes/[id]">) {
@@ -61,12 +61,11 @@ async function RecipeScreen({
         <CardContent className="grid gap-6">
           <RecipeLinesForm
             action={updateRecipe}
-            materials={shop.materialRows.map((material) => ({
-              id: material.id,
-              name: material.name,
-              unit: material.unit,
+            materials={stockChoices(shop)}
+            initialLines={lines.map((line) => ({
+              materialId: line.variantId ?? line.materialId,
+              quantity: line.quantity,
             }))}
-            initialLines={lines.map((line) => ({ materialId: line.materialId, quantity: line.quantity }))}
             submitLabel="Save recipe"
           >
             <input type="hidden" name="id" value={recipe.id} />

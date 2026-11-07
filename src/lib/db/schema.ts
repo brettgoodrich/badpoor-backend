@@ -9,17 +9,69 @@ export type MovementType = (typeof movementTypes)[number];
 export const matchTypes = ["variant", "custom_title"] as const;
 export type MatchType = (typeof matchTypes)[number];
 
-export const materials = sqliteTable("materials", {
+export const optionAxes = ["size", "color"] as const;
+export type OptionAxis = (typeof optionAxes)[number];
+
+export const recipeRoles = ["print", "blank", "other"] as const;
+export type RecipeRole = (typeof recipeRoles)[number];
+
+export const printSeries = sqliteTable("print_series", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type").notNull(),
-  size: text("size"),
-  color: text("color"),
-  unit: text("unit").notNull().default("each"),
   notes: text("notes"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+/** A blank model, a print, or a simple material. Blank models are not stocked themselves. */
+export const materials = sqliteTable("materials", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  unit: text("unit").notNull().default("each"),
+  notes: text("notes"),
+  brand: text("brand"),
+  styleNumber: text("style_number"),
+  ssStyleId: text("ss_style_id"),
+  seriesId: text("series_id").references(() => printSeries.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const materialOptions = sqliteTable(
+  "material_options",
+  {
+    id: text("id").primaryKey(),
+    materialId: text("material_id")
+      .notNull()
+      .references(() => materials.id, { onDelete: "cascade" }),
+    axis: text("axis").notNull(),
+    value: text("value").notNull(),
+    position: integer("position").notNull(),
+    archivedAt: text("archived_at"),
+  },
+  (table) => [
+    uniqueIndex("material_options_uidx").on(table.materialId, table.axis, table.value),
+    index("material_options_material_idx").on(table.materialId),
+  ],
+);
+
+export const materialVariants = sqliteTable(
+  "material_variants",
+  {
+    id: text("id").primaryKey(),
+    materialId: text("material_id")
+      .notNull()
+      .references(() => materials.id, { onDelete: "cascade" }),
+    size: text("size").notNull(),
+    color: text("color").notNull(),
+    archivedAt: text("archived_at"),
+  },
+  (table) => [
+    uniqueIndex("material_variants_uidx").on(table.materialId, table.size, table.color),
+    index("material_variants_material_idx").on(table.materialId),
+  ],
+);
 
 export const movements = sqliteTable(
   "inventory_movements",
@@ -28,6 +80,7 @@ export const movements = sqliteTable(
     materialId: text("material_id")
       .notNull()
       .references(() => materials.id, { onDelete: "restrict" }),
+    variantId: text("variant_id").references(() => materialVariants.id, { onDelete: "restrict" }),
     type: text("type").notNull(),
     quantity: real("quantity").notNull(),
     note: text("note"),
@@ -36,6 +89,7 @@ export const movements = sqliteTable(
   },
   (table) => [
     index("movements_material_idx").on(table.materialId),
+    index("movements_variant_idx").on(table.variantId),
     index("movements_build_idx").on(table.buildId),
   ],
 );
@@ -119,6 +173,8 @@ export const recipeLines = sqliteTable(
     materialId: text("material_id")
       .notNull()
       .references(() => materials.id, { onDelete: "restrict" }),
+    variantId: text("variant_id").references(() => materialVariants.id, { onDelete: "restrict" }),
+    role: text("role").notNull(),
     quantity: real("quantity").notNull(),
   },
   (table) => [index("recipe_lines_recipe_idx").on(table.recipeId)],
@@ -132,6 +188,7 @@ export const builds = sqliteTable(
     lineItemId: text("line_item_id").notNull(),
     quantity: integer("quantity").notNull(),
     note: text("note"),
+    blankVariantId: text("blank_variant_id"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -139,3 +196,8 @@ export const builds = sqliteTable(
     index("builds_order_idx").on(table.orderId),
   ],
 );
+
+/** Ledger identity: a blank variant, or the material itself when it has no matrix. */
+export function stockId(materialId: string, variantId: string | null | undefined) {
+  return variantId ?? materialId;
+}

@@ -23,14 +23,14 @@ async function Setup({
 }) {
   const query = await searchParams;
   const shop = await loadShop();
-  const linesByVariant = new Map<string, { materialId: string; quantity: number }[]>();
+  const linesByVariant = new Map<string, { variantId: string | null; role: string }[]>();
   for (const recipe of shop.recipeRows) {
     if (!recipe.shopifyVariantId) continue;
     linesByVariant.set(
       recipe.shopifyVariantId,
       (shop.linesByRecipe.get(recipe.id) ?? []).map((line) => ({
-        materialId: line.materialId,
-        quantity: line.quantity,
+        variantId: line.variantId,
+        role: line.role,
       })),
     );
   }
@@ -40,13 +40,38 @@ async function Setup({
     title: product.title,
     variants: shop.variantRows
       .filter((variant) => variant.productId === product.id)
-      .map((variant) => ({
-        id: variant.id,
-        title: variant.title,
-        options: parseOptions(variant.selectedOptions),
-        lines: linesByVariant.get(variant.id) ?? [],
-      })),
+      .map((variant) => {
+        const lines = linesByVariant.get(variant.id) ?? [];
+        return {
+          id: variant.id,
+          title: variant.title,
+          options: parseOptions(variant.selectedOptions),
+          blankVariantId: lines.find((line) => line.role === "blank")?.variantId ?? null,
+          printIds: [],
+        };
+      }),
   }));
+  const prints = shop.materialRows
+    .filter((material) => material.type === "print")
+    .map((material) => ({
+      id: material.id,
+      name: material.name,
+      seriesName: shop.seriesRows.find((series) => series.id === material.seriesId)?.name ?? null,
+    }));
+  const models = shop.materialRows
+    .filter((material) => material.type === "blank")
+    .map((material) => ({
+      id: material.id,
+      name: material.name,
+      variants: shop.blankVariantRows
+        .filter((variant) => variant.materialId === material.id)
+        .map((variant) => ({
+          id: variant.id,
+          size: variant.size,
+          color: variant.color,
+          archived: Boolean(variant.archivedAt),
+        })),
+    }));
 
   return (
     <>
@@ -56,7 +81,7 @@ async function Setup({
         </Link>
         <h1 className="mt-2 font-heading text-4xl tracking-tight">Map a product</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Pick one print for the whole product. Each size is matched to a blank with the same size, and the same color when the variant has one. Override any row before saving.
+          Choose the print and the blank model. Each Shopify variant is matched to a size and color on that model. Small matches S. Override any row before saving.
         </p>
       </div>
       <Notice notice={one(query.notice)} error={one(query.error)} />
@@ -64,21 +89,11 @@ async function Setup({
         <CardHeader>
           <CardTitle>Variants</CardTitle>
           <CardDescription>
-            Example: Print A on every HCS Gym Shorts size, Blank Shorts S on S, Blank Shorts M on M.
+            Example: Print A from PTF Uniforms 2026 on every HCS Gym Shorts size, matched to Gildan 64000 in black.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <RecipeSetupForm
-            action={saveBulkRecipes}
-            products={products}
-            materials={shop.materialRows.map((material) => ({
-              id: material.id,
-              name: material.name,
-              type: material.type,
-              size: material.size,
-              color: material.color,
-            }))}
-          />
+          <RecipeSetupForm action={saveBulkRecipes} products={products} prints={prints} models={models} />
         </CardContent>
       </Card>
     </>
