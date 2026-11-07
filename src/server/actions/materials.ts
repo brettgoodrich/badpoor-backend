@@ -10,7 +10,8 @@ import {
   movements,
   movementTypes,
   printSeries,
-  recipeLines,
+  recipeExclusions,
+  recipeOverrides,
 } from "@/lib/db/schema";
 import { readString } from "@/lib/format";
 import { activePairs, missingCombos, pairKey, parseOptionList, planAxisRemoval } from "@/lib/inventory/matrix";
@@ -25,9 +26,9 @@ export async function createBlankModel(formData: FormData) {
   const name = readString(formData, "name");
   const sizes = parseOptionList(readString(formData, "sizes"));
   const colors = parseOptionList(readString(formData, "colors"));
-  if (!name) redirectWith("/materials", "error", "Name the blank model.");
+  if (!name) redirectWith("/materials", "error", "Name the blank.");
   if (sizes.length === 0 || colors.length === 0) {
-    redirectWith("/materials", "error", "A blank model needs at least one size and one color. The grid is generated from those.");
+    redirectWith("/materials", "error", "A blank needs at least one size and one color. The grid is generated from those.");
   }
 
   const database = await getDb();
@@ -129,7 +130,7 @@ export async function createSimpleMaterial(formData: FormData) {
   const name = readString(formData, "name");
   const type = readString(formData, "type");
   if (!name) redirectWith("/materials", "error", "Name the material.");
-  if (type !== "trim" && type !== "other") redirectWith("/materials", "error", "Use a blank model or a print for those types.");
+  if (type !== "trim" && type !== "other") redirectWith("/materials", "error", "Use a blank or a print for those types.");
   const database = await getDb();
   const id = crypto.randomUUID();
   const now = nowIso();
@@ -163,7 +164,7 @@ export async function addAxisValues(formData: FormData) {
 
   const database = await getDb();
   const model = database.select().from(materials).where(eq(materials.id, materialId)).get();
-  if (!model || model.type !== "blank") redirectWith("/materials", "error", "That is not a blank model.");
+  if (!model || model.type !== "blank") redirectWith("/materials", "error", "That is not a blank.");
 
   const existingOptions = database.select().from(materialOptions).where(eq(materialOptions.materialId, materialId)).all();
   const existingVariants = database.select().from(materialVariants).where(eq(materialVariants.materialId, materialId)).all();
@@ -249,14 +250,18 @@ export async function removeAxisValue(formData: FormData) {
       .map((row) => row.variantId)
       .filter((id): id is string => Boolean(id)),
   );
-  const recipeVariantIds = new Set(
-    database
-      .select({ variantId: recipeLines.variantId })
-      .from(recipeLines)
+  const recipeVariantIds = new Set([
+    ...database
+      .select({ variantId: recipeExclusions.variantId })
+      .from(recipeExclusions)
       .all()
-      .map((row) => row.variantId)
-      .filter((id): id is string => Boolean(id)),
-  );
+      .map((row) => row.variantId),
+    ...database
+      .select({ variantId: recipeOverrides.blankVariantId })
+      .from(recipeOverrides)
+      .all()
+      .map((row) => row.variantId),
+  ]);
   const plan = planAxisRemoval(
     variants.map((variant) => ({
       ...variant,
@@ -292,7 +297,7 @@ export async function removeAxisValue(formData: FormData) {
     back,
     "notice",
     plan.archiveIds.length > 0
-      ? `${value} is archived because a variant already has stock history or a recipe.`
+      ? `${value} is archived because a variant already has stock history or is part of a recipe.`
       : `Removed ${value}.`,
   );
 }

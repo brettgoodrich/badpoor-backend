@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardLink } from "@/components/card-link";
 import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { formatDate, fulfillmentLabel, one, orderPath } from "@/lib/format";
@@ -58,26 +58,20 @@ async function Orders({
       ) : (
         <div className="grid gap-3">
           {shop.report.orders.map((order) => (
-            <Card key={order.id} size="sm">
-              <CardHeader>
-                <CardTitle>
-                  <Link href={orderPath(order.id)} className="hover:underline">
-                    {order.name}
-                  </Link>
-                </CardTitle>
-                <CardDescription>
-                  {formatDate(order.createdAt)} · {fulfillmentLabel(order.fulfillmentStatus)} · {order.unitsRemaining} to build
-                  {order.unmappedCount > 0 ? ` · ${order.unmappedCount} without a recipe` : ""}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
+            <CardLink key={order.id} href={orderPath(order.id)}>
+              <span className="font-heading text-base font-medium group-hover/card:underline">{order.name}</span>
+              <span className="text-muted-foreground">
+                {formatDate(order.createdAt)} · {fulfillmentLabel(order.fulfillmentStatus)} · {order.unitsRemaining} to build
+                {order.unmappedCount > 0 ? ` · ${order.unmappedCount} without a recipe` : ""}
+              </span>
+              <span className="mt-2 flex flex-wrap gap-2">
                 {order.lines.map((line) => (
                   <Badge key={line.id} variant={line.recipeId || line.remaining === 0 ? "secondary" : "destructive"}>
                     {line.name} × {line.remaining}
                   </Badge>
                 ))}
-              </CardContent>
-            </Card>
+              </span>
+            </CardLink>
           ))}
         </div>
       )}

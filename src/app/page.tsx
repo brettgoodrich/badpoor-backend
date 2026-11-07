@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CardLink } from "@/components/card-link";
 import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { Qty } from "@/components/qty";
@@ -200,42 +201,36 @@ async function Dashboard({
         ) : (
           <div className="grid gap-3">
             {openOrders.map((order) => (
-              <Card key={order.id} size="sm">
-                <CardHeader>
-                  <CardTitle>
-                    <Link href={orderPath(order.id)} className="hover:underline">
-                      {order.name}
-                    </Link>
-                  </CardTitle>
-                  <CardDescription>
-                    {formatDate(order.createdAt)} · {fulfillmentLabel(order.fulfillmentStatus)} · {order.unitsRemaining} to build
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-2">
+              <CardLink key={order.id} href={orderPath(order.id)} className="gap-3">
+                <span className="font-heading text-base font-medium group-hover/card:underline">{order.name}</span>
+                <span className="text-muted-foreground">
+                  {formatDate(order.createdAt)} · {fulfillmentLabel(order.fulfillmentStatus)} · {order.unitsRemaining} to build
+                </span>
+                <span className="grid gap-2">
                   {order.lines.map((line) => (
-                    <div key={line.id} className="flex flex-wrap items-start justify-between gap-2 text-sm">
-                      <div>
-                        <div className="font-medium">{line.name}</div>
+                    <span key={line.id} className="flex flex-wrap items-start justify-between gap-2 text-sm">
+                      <span>
+                        <span className="block font-medium">{line.name}</span>
                         {line.recipeId ? (
-                          <p className="text-muted-foreground">
+                          <span className="text-muted-foreground">
                             {line.needs.map((need) => `${need.materialName} ${need.quantity}`).join(" · ") || "Recipe has no materials"}
-                          </p>
+                          </span>
                         ) : line.remaining > 0 ? (
                           <Badge variant="destructive">No recipe</Badge>
                         ) : (
-                          <p className="text-muted-foreground">Nothing left to build</p>
+                          <span className="text-muted-foreground">Nothing left to build</span>
                         )}
-                      </div>
-                      <div className="text-right tabular-nums">
-                        <div>{line.remaining} left</div>
+                      </span>
+                      <span className="text-right tabular-nums">
+                        <span className="block">{line.remaining} left</span>
                         {line.recipeId && line.remaining > 0 ? (
-                          <div className="text-muted-foreground">can build {line.canBuildNow}</div>
+                          <span className="text-muted-foreground">can build {line.canBuildNow}</span>
                         ) : null}
-                      </div>
-                    </div>
+                      </span>
+                    </span>
                   ))}
-                </CardContent>
-              </Card>
+                </span>
+              </CardLink>
             ))}
           </div>
         )}

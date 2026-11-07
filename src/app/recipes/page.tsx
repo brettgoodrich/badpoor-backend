@@ -3,11 +3,12 @@ import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { CardLink } from "@/components/card-link";
 import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { cn } from "cn";
 import { one } from "@/lib/format";
-import { loadShop, variantLabel } from "@/lib/inventory/load";
+import { loadShop } from "@/lib/inventory/load";
 
 export default function RecipesPage({ searchParams }: PageProps<"/recipes">) {
   return (
@@ -25,11 +26,11 @@ async function Recipes({
   const query = await searchParams;
   const shop = await loadShop();
   const materials = new Map(shop.materialRows.map((material) => [material.id, material]));
-  const variants = new Map(shop.variantRows.map((variant) => [variant.id, variant]));
-  const mappedVariants = new Set(
-    shop.recipeRows.map((recipe) => recipe.shopifyVariantId).filter((id): id is string => Boolean(id)),
+  const products = new Map(shop.productRows.map((product) => [product.id, product]));
+  const mappedProducts = new Set(
+    shop.recipeRows.map((recipe) => recipe.shopifyProductId).filter((id): id is string => Boolean(id)),
   );
-  const unmappedVariants = shop.variantRows.filter((variant) => !mappedVariants.has(variant.id));
+  const unmappedProducts = shop.productRows.filter((product) => !mappedProducts.has(product.id));
 
   return (
     <>
@@ -37,7 +38,7 @@ async function Recipes({
         <div className="max-w-2xl">
           <h1 className="font-heading text-4xl tracking-tight">Recipes</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            A recipe says which materials one finished unit consumes. Variants map by Shopify id. Custom order lines, like “S-XL Shirts”, map by title because they have no variant.
+            A recipe covers a whole Shopify product: a print plus a blank. Sizes and colors match on their own. Custom order lines, like “S-XL Shirts”, map by title.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -75,56 +76,42 @@ async function Recipes({
           <p className="text-sm text-muted-foreground">No recipes yet.</p>
         ) : (
           shop.recipeRows.map((recipe) => {
-            const variant = recipe.shopifyVariantId ? variants.get(recipe.shopifyVariantId) : undefined;
-            const title = variant
-              ? `${variant.productTitle} · ${variant.title}`
-              : (recipe.customTitle ?? "Custom item");
+            const product = recipe.shopifyProductId ? products.get(recipe.shopifyProductId) : undefined;
+            const title = product ? product.title : (recipe.customTitle ?? "Custom item");
             const lines = shop.linesByRecipe.get(recipe.id) ?? [];
+            const blankLine = lines.find((line) => line.role === "blank");
+            const unchecked = blankLine
+              ? shop.exclusionRows.filter((exclusion) => exclusion.recipeLineId === blankLine.id).length
+              : 0;
+            const summary = lines
+              .map((line) => `${materials.get(line.materialId)?.name ?? "Missing material"} × ${line.quantity}`)
+              .join(" · ");
             return (
-              <Card key={recipe.id} size="sm">
-                <CardHeader>
-                  <CardTitle>
-                    <Link href={`/recipes/${recipe.id}`} className="hover:underline">
-                      {title}
-                    </Link>
-                  </CardTitle>
-                  <CardDescription>
-                    <Badge variant="outline">{recipe.matchType === "variant" ? "Variant" : "Custom title"}</Badge>
-                    {recipe.notes ? <span className="ml-2">{recipe.notes}</span> : null}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  {lines
-                    .map((line) => {
-                      const material = materials.get(line.materialId);
-                      const blank = line.variantId
-                        ? shop.blankVariantRows.find((variant) => variant.id === line.variantId)
-                        : undefined;
-                      const name = blank
-                        ? variantLabel(material?.name ?? "Blank", blank.size, blank.color)
-                        : (material?.name ?? "Missing material");
-                      return `${name} × ${line.quantity}`;
-                    })
-                    .join(" · ") || "No materials"}
-                </CardContent>
-              </Card>
+              <CardLink key={recipe.id} href={`/recipes/${recipe.id}`}>
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="font-heading text-base font-medium group-hover/card:underline">{title}</span>
+                  <Badge variant="outline">{recipe.matchType === "product" ? "Product" : "Custom title"}</Badge>
+                </span>
+                <span className="text-muted-foreground">
+                  {summary || "No materials"}
+                  {unchecked > 0 ? ` · ${unchecked} variant${unchecked === 1 ? "" : "s"} unchecked` : ""}
+                </span>
+              </CardLink>
             );
           })
         )}
       </div>
 
-      {unmappedVariants.length > 0 ? (
+      {unmappedProducts.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Variants with no recipe</CardTitle>
-            <CardDescription>
-              {unmappedVariants.length} catalog variants are not mapped. They only matter once an order includes them.
-            </CardDescription>
+            <CardTitle>Products with no recipe</CardTitle>
+            <CardDescription>These products are not mapped yet. They only matter once an order includes them.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            {unmappedVariants.map((variant) => (
-              <Badge key={variant.id} variant="secondary">
-                {variant.productTitle} · {variant.title}
+            {unmappedProducts.map((product) => (
+              <Badge key={product.id} variant="secondary">
+                {product.title}
               </Badge>
             ))}
           </CardContent>

@@ -6,7 +6,7 @@ export type MaterialType = (typeof materialTypes)[number];
 export const movementTypes = ["purchase", "receive", "consume", "adjustment"] as const;
 export type MovementType = (typeof movementTypes)[number];
 
-export const matchTypes = ["variant", "custom_title"] as const;
+export const matchTypes = ["product", "custom_title"] as const;
 export type MatchType = (typeof matchTypes)[number];
 
 export const optionAxes = ["size", "color"] as const;
@@ -151,18 +151,19 @@ export const recipes = sqliteTable(
   {
     id: text("id").primaryKey(),
     matchType: text("match_type").notNull(),
-    shopifyVariantId: text("shopify_variant_id"),
+    shopifyProductId: text("shopify_product_id"),
     customTitle: text("custom_title"),
     notes: text("notes"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
-    uniqueIndex("recipes_variant_uidx").on(table.shopifyVariantId),
+    uniqueIndex("recipes_product_uidx").on(table.shopifyProductId),
     uniqueIndex("recipes_custom_title_uidx").on(table.customTitle),
   ],
 );
 
+/** A line names a print, a whole blank, or another material. Blank lines apply to every variant unless excluded. */
 export const recipeLines = sqliteTable(
   "recipe_lines",
   {
@@ -173,11 +174,46 @@ export const recipeLines = sqliteTable(
     materialId: text("material_id")
       .notNull()
       .references(() => materials.id, { onDelete: "restrict" }),
-    variantId: text("variant_id").references(() => materialVariants.id, { onDelete: "restrict" }),
     role: text("role").notNull(),
     quantity: real("quantity").notNull(),
   },
   (table) => [index("recipe_lines_recipe_idx").on(table.recipeId)],
+);
+
+export const recipeExclusions = sqliteTable(
+  "recipe_exclusions",
+  {
+    id: text("id").primaryKey(),
+    recipeLineId: text("recipe_line_id")
+      .notNull()
+      .references(() => recipeLines.id, { onDelete: "cascade" }),
+    variantId: text("variant_id")
+      .notNull()
+      .references(() => materialVariants.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    uniqueIndex("recipe_exclusions_uidx").on(table.recipeLineId, table.variantId),
+    index("recipe_exclusions_line_idx").on(table.recipeLineId),
+  ],
+);
+
+/** Optional replacement for the size/color match of one Shopify variant. */
+export const recipeOverrides = sqliteTable(
+  "recipe_overrides",
+  {
+    id: text("id").primaryKey(),
+    recipeId: text("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    shopifyVariantId: text("shopify_variant_id").notNull(),
+    blankVariantId: text("blank_variant_id")
+      .notNull()
+      .references(() => materialVariants.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    uniqueIndex("recipe_overrides_uidx").on(table.recipeId, table.shopifyVariantId),
+    index("recipe_overrides_recipe_idx").on(table.recipeId),
+  ],
 );
 
 export const builds = sqliteTable(

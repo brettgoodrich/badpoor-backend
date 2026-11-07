@@ -20,6 +20,32 @@ const transfer = "mat_transfer";
 const shorts = "gid://shopify/Product/9001";
 const sweatpants = "gid://shopify/Product/9002";
 
+export const exampleVariantOptions: Record<string, { name: string; value: string }[]> = {
+  "gid://shopify/ProductVariant/9101": [{ name: "Size", value: "XS" }],
+  "gid://shopify/ProductVariant/9102": [{ name: "Size", value: "S" }],
+  "gid://shopify/ProductVariant/9103": [{ name: "Size", value: "M" }],
+  "gid://shopify/ProductVariant/9104": [{ name: "Size", value: "L" }],
+  "gid://shopify/ProductVariant/9105": [{ name: "Size", value: "YOUTH S" }],
+  "gid://shopify/ProductVariant/9106": [{ name: "Size", value: "YOUTH M" }],
+  "gid://shopify/ProductVariant/9107": [{ name: "Size", value: "YOUTH L" }],
+  "gid://shopify/ProductVariant/9201": [
+    { name: "Size", value: "S" },
+    { name: "Color", value: "Black" },
+  ],
+  "gid://shopify/ProductVariant/9202": [
+    { name: "Size", value: "M" },
+    { name: "Color", value: "Black" },
+  ],
+  "gid://shopify/ProductVariant/9203": [
+    { name: "Size", value: "L" },
+    { name: "Color", value: "Black" },
+  ],
+  "gid://shopify/ProductVariant/9204": [
+    { name: "Size", value: "YOUTH L" },
+    { name: "Color", value: "Black" },
+  ],
+};
+
 export const exampleInput: ReportInput = {
   materials: [
     stock(printA, "Print A", "print", null, null, "each", { modelId: printA, modelName: "Print A", seriesName: "PTF Uniforms 2026" }),
@@ -28,6 +54,10 @@ export const exampleInput: ReportInput = {
     stock(blankM, "Gildan 64000 · M / Black", "blank", "M", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
     stock(blankL, "Gildan 64000 · L / Black", "blank", "L", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
     stock(blankYouthS, "Gildan 64000 · YS / Black", "blank", "YS", "Black", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock("mat_gildan_s_navy", "Gildan 64000 · S / Navy", "blank", "S", "Navy", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock("mat_gildan_m_navy", "Gildan 64000 · M / Navy", "blank", "M", "Navy", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock("mat_gildan_l_navy", "Gildan 64000 · L / Navy", "blank", "L", "Navy", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
+    stock("mat_gildan_ys_navy", "Gildan 64000 · YS / Navy", "blank", "YS", "Navy", "each", { modelId: "mat_gildan", modelName: "Gildan 64000" }),
     stock(blankSweatS, "Pocketed Sweatpants · S / Black", "blank", "S", "Black", "each", {
       modelId: "mat_sweat",
       modelName: "Pocketed Sweatpants",
@@ -63,26 +93,39 @@ export const exampleInput: ReportInput = {
     variant(sweatpants, "HCS Gym Sweatpants", "9204", "YOUTH L / Black"),
   ],
   recipes: [
-    recipe("recipe_shorts_s", "gid://shopify/ProductVariant/9102", [
-      [printA, 1],
-      [blankS, 1],
-    ]),
-    recipe("recipe_shorts_m", "gid://shopify/ProductVariant/9103", [
-      [printA, 1],
-      [blankM, 1],
-    ]),
-    recipe("recipe_shorts_l", "gid://shopify/ProductVariant/9104", [
-      [printA, 1],
-      [blankL, 1],
-    ]),
-    recipe("recipe_shorts_ys", "gid://shopify/ProductVariant/9105", [
-      [printA, 1],
-      [blankYouthS, 1],
-    ]),
-    recipe("recipe_sweat_s", "gid://shopify/ProductVariant/9201", [
-      [printB, 1],
-      [blankSweatS, 1],
-    ]),
+    {
+      id: "recipe_shorts",
+      matchType: "product",
+      shopifyProductId: shorts,
+      customTitle: null,
+      overrides: [],
+      lines: [
+        { materialId: printA, role: "print", quantity: 1 },
+        {
+          materialId: "mat_gildan",
+          role: "blank",
+          quantity: 1,
+          excludedVariantIds: [
+            "mat_gildan_ys_navy",
+            "mat_gildan_s_navy",
+            "mat_gildan_m_navy",
+            "mat_gildan_l_navy",
+            "mat_gildan_xl_navy",
+          ],
+        },
+      ],
+    },
+    {
+      id: "recipe_sweat",
+      matchType: "product",
+      shopifyProductId: sweatpants,
+      customTitle: null,
+      overrides: [],
+      lines: [
+        { materialId: printB, role: "print", quantity: 1 },
+        { materialId: "mat_sweat", role: "blank", quantity: 1 },
+      ],
+    },
   ],
   orders: [
     {
@@ -154,20 +197,7 @@ function variant(
     productTitle,
     title,
     sku: null,
-  };
-}
-
-function recipe(
-  id: string,
-  variantId: string,
-  lines: [string, number][],
-): ReportInput["recipes"][number] {
-  return {
-    id,
-    matchType: "variant",
-    shopifyVariantId: variantId,
-    customTitle: null,
-    lines: lines.map(([materialId, quantity]) => ({ materialId, quantity })),
+    options: exampleVariantOptions[`gid://shopify/ProductVariant/${numericId}`] ?? [],
   };
 }
 
@@ -193,29 +223,3 @@ function line(
     unfulfilledQuantity,
   };
 }
-
-export const exampleVariantOptions: Record<string, { name: string; value: string }[]> = {
-  "gid://shopify/ProductVariant/9101": [{ name: "Size", value: "XS" }],
-  "gid://shopify/ProductVariant/9102": [{ name: "Size", value: "S" }],
-  "gid://shopify/ProductVariant/9103": [{ name: "Size", value: "M" }],
-  "gid://shopify/ProductVariant/9104": [{ name: "Size", value: "L" }],
-  "gid://shopify/ProductVariant/9105": [{ name: "Size", value: "YOUTH S" }],
-  "gid://shopify/ProductVariant/9106": [{ name: "Size", value: "YOUTH M" }],
-  "gid://shopify/ProductVariant/9107": [{ name: "Size", value: "YOUTH L" }],
-  "gid://shopify/ProductVariant/9201": [
-    { name: "Size", value: "S" },
-    { name: "Color", value: "Black" },
-  ],
-  "gid://shopify/ProductVariant/9202": [
-    { name: "Size", value: "M" },
-    { name: "Color", value: "Black" },
-  ],
-  "gid://shopify/ProductVariant/9203": [
-    { name: "Size", value: "L" },
-    { name: "Color", value: "Black" },
-  ],
-  "gid://shopify/ProductVariant/9204": [
-    { name: "Size", value: "YOUTH L" },
-    { name: "Color", value: "Black" },
-  ],
-};

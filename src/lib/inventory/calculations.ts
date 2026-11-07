@@ -18,6 +18,8 @@ export type DemandLine = {
   id: string;
   recipeId: string | null;
   quantity: number;
+  /** Concrete stock lines for this order line. When set, they replace the shared recipe. */
+  lines?: RecipeLine[];
 };
 
 export type MaterialNeed = {
@@ -63,13 +65,17 @@ export function remainingDemand(unfulfilledQuantity: number, builtQuantity: numb
   return Math.max(0, unfulfilledQuantity - builtQuantity);
 }
 
+function linesForDemand(line: DemandLine, recipesById: Map<string, Recipe>) {
+  if (line.lines) return line.lines;
+  if (!line.recipeId || line.quantity <= 0) return [];
+  return recipesById.get(line.recipeId)?.lines ?? [];
+}
+
 export function demandByMaterial(lines: DemandLine[], recipesById: Map<string, Recipe>) {
   const demand = new Map<string, number>();
   for (const line of lines) {
-    if (!line.recipeId || line.quantity <= 0) continue;
-    const recipe = recipesById.get(line.recipeId);
-    if (!recipe) continue;
-    for (const recipeLine of recipe.lines) {
+    if (line.quantity <= 0) continue;
+    for (const recipeLine of linesForDemand(line, recipesById)) {
       if (recipeLine.quantity <= 0) continue;
       const next = (demand.get(recipeLine.materialId) ?? 0) + recipeLine.quantity * line.quantity;
       demand.set(recipeLine.materialId, roundQty(next));
@@ -188,9 +194,8 @@ export function allocateBuilds(
   const allocations: Allocation[] = [];
 
   for (const line of lines) {
-    const recipe = line.recipeId ? recipesById.get(line.recipeId) : undefined;
-    const constraining = recipe?.lines.filter((recipeLine) => recipeLine.quantity > 0) ?? [];
-    if (!recipe || constraining.length === 0 || line.quantity <= 0) {
+    const constraining = linesForDemand(line, recipesById).filter((recipeLine) => recipeLine.quantity > 0);
+    if (constraining.length === 0 || line.quantity <= 0) {
       allocations.push({ lineId: line.id, quantity: 0 });
       continue;
     }

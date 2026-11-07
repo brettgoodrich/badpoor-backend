@@ -12,7 +12,7 @@ export type BlankCandidate = {
 export type RecipeMatch = {
   id: string;
   matchType: string;
-  shopifyVariantId: string | null;
+  shopifyProductId: string | null;
   customTitle: string | null;
 };
 
@@ -132,13 +132,14 @@ export function matchBlank(
 export function resolveRecipeId(
   line: { variantId: string | null; title: string; name?: string | null },
   recipes: RecipeMatch[],
+  productIdByVariant: Map<string, string> = new Map(),
 ) {
   if (line.variantId) {
-    return (
-      recipes.find(
-        (recipe) => recipe.matchType === "variant" && recipe.shopifyVariantId === line.variantId,
-      )?.id ?? null
-    );
+    const productId = productIdByVariant.get(line.variantId);
+    const productRecipe = productId
+      ? recipes.find((recipe) => recipe.matchType === "product" && recipe.shopifyProductId === productId)
+      : undefined;
+    if (productRecipe) return productRecipe.id;
   }
 
   const titles = [line.title, line.name].filter((value): value is string => Boolean(value));

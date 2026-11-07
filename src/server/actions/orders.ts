@@ -3,10 +3,23 @@
 import { eq } from "drizzle-orm";
 import { redirectWith, refreshShop } from "@/lib/action";
 import { getDb } from "@/lib/db";
-import { builds, materialVariants, movements, recipeLines, recipes, shopifyLineItems, shopifyOrders } from "@/lib/db/schema";
+import {
+  builds,
+  materialVariants,
+  movements,
+  recipeExclusions,
+  recipeLines,
+  recipeOverrides,
+  recipes,
+  shopifyLineItems,
+  shopifyOrders,
+  shopifyVariants,
+} from "@/lib/db/schema";
 import { orderPath, readString } from "@/lib/format";
 import { consumptionForBuild } from "@/lib/inventory/calculations";
 import { resolveRecipeId } from "@/lib/inventory/matching";
+import { parseOptions } from "@/lib/inventory/load";
+import { concreteLines } from "@/lib/inventory/resolve";
 
 type Database = Awaited<ReturnType<typeof getDb>>;
 
@@ -33,6 +46,8 @@ function recordBuild(database: Database, lineItemId: string, quantity: number, n
     }
 
     const recipeRows = tx.select().from(recipes).all();
+    const catalog = tx.select().from(shopifyVariants).all();
+    const productIdByVariant = new Map(catalog.map((variant) => [variant.id, variant.productId]));
     const recipe = recipeRows.find(
       (entry) =>
         resolveRecipeId(
@@ -40,33 +55,53 @@ function recordBuild(database: Database, lineItemId: string, quantity: number, n
           recipeRows.map((row) => ({
             id: row.id,
             matchType: row.matchType,
-            shopifyVariantId: row.shopifyVariantId,
+            shopifyProductId: row.shopifyProductId,
             customTitle: row.customTitle,
           })),
+          productIdByVariant,
         ) === entry.id,
     );
     if (!recipe) throw new Error(`${line.name} has no recipe yet, so it was not marked built.`);
     const lines = tx.select().from(recipeLines).where(eq(recipeLines.recipeId, recipe.id)).all();
     if (lines.length === 0) throw new Error("That recipe has no materials.");
-    const blankLine = lines.find((entry) => entry.role === "blank" && entry.variantId);
-    let consumedBlankId = blankLine?.variantId ?? null;
+    const exclusions = tx.select().from(recipeExclusions).all();
+    const storedOverrides = tx.select().from(recipeOverrides).where(eq(recipeOverrides.recipeId, recipe.id)).all();
+    const blanks = tx.select().from(materialVariants).all();
+    const shopifyVariant = line.variantId ? catalog.find((variant) => variant.id === line.variantId) : undefined;
+    const resolved = concreteLines(
+      {
+        lines: lines.map((entry) => ({
+          materialId: entry.materialId,
+          role: entry.role,
+          quantity: entry.quantity,
+          excludedVariantIds: exclusions.filter((row) => row.recipeLineId === entry.id).map((row) => row.variantId),
+        })),
+        overrides: storedOverrides.map((row) => ({ shopifyVariantId: row.shopifyVariantId, blankVariantId: row.blankVariantId })),
+      },
+      {
+        shopifyVariantId: line.variantId,
+        title: shopifyVariant?.title ?? line.variantTitle ?? line.name,
+        options: parseOptions(shopifyVariant?.selectedOptions ?? "[]"),
+      },
+      blanks,
+    );
+    if (!resolved.complete) throw new Error(`${line.name} does not match a size and color on this blank.`);
+    const blankLine = lines.find((entry) => entry.role === "blank");
+    const matchedBlankId = resolved.lines.find((entry) => entry.role === "blank")?.materialId ?? null;
+    let consumedBlankId = matchedBlankId;
     if (blankOverrideId) {
-      const override = tx.select().from(materialVariants).where(eq(materialVariants.id, blankOverrideId)).get();
+      const override = blanks.find((variant) => variant.id === blankOverrideId);
       if (!override || override.archivedAt) throw new Error("That blank variant is not available.");
       if (blankLine && override.materialId !== blankLine.materialId) {
-        throw new Error("Pick a size and color from the same blank model.");
+        throw new Error("Pick a size and color from the same blank.");
       }
       consumedBlankId = override.id;
     }
 
     const consumed = consumptionForBuild(
-      lines.map((entry) => ({
-        materialId: entry.variantId ?? entry.materialId,
-        quantity: entry.quantity,
-        role: entry.role,
-      })),
+      resolved.lines,
       quantity,
-      blankOverrideId && blankOverrideId !== blankLine?.variantId ? blankOverrideId : null,
+      blankOverrideId && blankOverrideId !== matchedBlankId ? blankOverrideId : null,
     );
 
     const buildId = crypto.randomUUID();
@@ -132,12 +167,15 @@ export async function markOrderBuilt(formData: FormData) {
 
   const lines = database.select().from(shopifyLineItems).where(eq(shopifyLineItems.orderId, orderId)).all();
   const recipeRows = database.select().from(recipes).all();
+  const productIdByVariant = new Map(database.select().from(shopifyVariants).all().map((variant) => [variant.id, variant.productId]));
   const matches = recipeRows.map((row) => ({
     id: row.id,
     matchType: row.matchType,
-    shopifyVariantId: row.shopifyVariantId,
+    shopifyProductId: row.shopifyProductId,
     customTitle: row.customTitle,
   }));
+  const hasRecipe = (line: (typeof lines)[number]) =>
+    Boolean(resolveRecipeId({ variantId: line.variantId, title: line.title, name: line.name }, matches, productIdByVariant));
   const builtByLine = new Map<string, number>();
   for (const build of database.select().from(builds).all()) {
     builtByLine.set(build.lineItemId, (builtByLine.get(build.lineItemId) ?? 0) + build.quantity);
@@ -146,14 +184,13 @@ export async function markOrderBuilt(formData: FormData) {
   const targets = lines.flatMap((line) => {
     const remaining = Math.max(0, line.unfulfilledQuantity - (builtByLine.get(line.id) ?? 0));
     if (remaining <= 0) return [];
-    const recipeId = resolveRecipeId({ variantId: line.variantId, title: line.title, name: line.name }, matches);
-    if (!recipeId) return [];
+    if (!hasRecipe(line)) return [];
     return [{ id: line.id, quantity: remaining, name: line.name }];
   });
   const skipped = lines.filter((line) => {
     const remaining = Math.max(0, line.unfulfilledQuantity - (builtByLine.get(line.id) ?? 0));
     if (remaining <= 0) return false;
-    return !resolveRecipeId({ variantId: line.variantId, title: line.title, name: line.name }, matches);
+    return !hasRecipe(line);
   }).length;
 
   if (targets.length === 0) {
@@ -166,16 +203,27 @@ export async function markOrderBuilt(formData: FormData) {
     );
   }
 
-  try {
-    for (const target of targets) {
+  let builtCount = 0;
+  let unmatched = 0;
+  for (const target of targets) {
+    try {
       recordBuild(database, target.id, target.quantity, "", null);
+      builtCount += 1;
+    } catch {
+      unmatched += 1;
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not record the build.";
-    redirectWith(back, "error", message);
+  }
+  if (builtCount === 0) {
+    redirectWith(
+      back,
+      "error",
+      skipped + unmatched > 0
+        ? "Every remaining line is missing a recipe or a matching size, so nothing was marked built."
+        : "Nothing on this order is left to build.",
+    );
   }
 
   refreshShop();
-  const skipNote = skipped > 0 ? ` ${skipped} line${skipped === 1 ? "" : "s"} still need a recipe.` : "";
-  redirectWith(back, "notice", `Marked ${targets.length} mapped line${targets.length === 1 ? "" : "s"} built.${skipNote} Shopify was not changed.`);
+  const skipNote = skipped + unmatched > 0 ? ` ${skipped + unmatched} line${skipped + unmatched === 1 ? "" : "s"} still need a recipe or a matching size.` : "";
+  redirectWith(back, "notice", `Marked ${builtCount} mapped line${builtCount === 1 ? "" : "s"} built.${skipNote} Shopify was not changed.`);
 }
