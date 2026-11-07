@@ -4,9 +4,7 @@ import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Field } from "@/components/field";
-import { NativeSelect } from "@/components/native-select";
+import { FulfillForm } from "@/components/fulfill-form";
 import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { formatDate, formatWhen, fulfillmentLabel, one, sameOrder } from "@/lib/format";
@@ -21,33 +19,21 @@ export default function OrderPage({ params, searchParams }: PageProps<"/orders/[
   );
 }
 
-function BlankOverride({
-  line,
-  shop,
-}: {
-  line: { needs: { materialId: string; role: string }[] };
-  shop: Awaited<ReturnType<typeof loadShop>>;
-}) {
+function blankChoices(
+  line: { needs: { materialId: string; role: string }[] },
+  shop: Awaited<ReturnType<typeof loadShop>>,
+) {
   const blankNeed = line.needs.find((need) => need.role === "blank");
-  const variant = blankNeed
-    ? shop.blankVariantRows.find((entry) => entry.id === blankNeed.materialId)
-    : undefined;
-  if (!variant) return null;
-  const choices = shop.blankVariantRows.filter(
-    (entry) => entry.materialId === variant.materialId && !entry.archivedAt,
-  );
+  const variant = blankNeed ? shop.blankVariantRows.find((entry) => entry.id === blankNeed.materialId) : undefined;
+  if (!variant) return [];
   const model = shop.materialRows.find((entry) => entry.id === variant.materialId);
-  return (
-    <Field label="Blank for this build" hint="Changes this build only. The recipe stays the same.">
-      <NativeSelect name="blankVariantId" defaultValue={variant.id}>
-        {choices.map((choice) => (
-          <option key={choice.id} value={choice.id}>
-            {variantLabel(model?.name ?? "Blank", choice.size, choice.color)}
-          </option>
-        ))}
-      </NativeSelect>
-    </Field>
-  );
+  const choices = shop.blankVariantRows.filter((entry) => entry.materialId === variant.materialId && !entry.archivedAt);
+  const selected = choices.find((entry) => entry.id === variant.id);
+  const ordered = selected ? [selected, ...choices.filter((entry) => entry.id !== selected.id)] : choices;
+  return ordered.map((choice) => ({
+    id: choice.id,
+    label: variantLabel(model?.name ?? "Blank", choice.size, choice.color),
+  }));
 }
 
 async function OrderScreen({
@@ -99,18 +85,21 @@ async function OrderScreen({
               </CardTitle>
               <CardDescription>
                 Ordered {line.quantity} · unfulfilled on Shopify {line.unfulfilledQuantity} · built here {line.built} · left {line.remaining}
-                {line.recipeId && line.remaining > 0 ? ` · can build ${line.canBuildNow} with current stock` : ""}
+                {line.finishedCover > 0 ? ` · ${line.finishedCover} covered by finished stock` : ""}
+                {line.recipeId && line.remaining > 0 ? ` · can build ${line.canBuildNow} more from materials` : ""}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
-              {line.needs.length > 0 ? (
+              {line.finishedCover > 0 && line.needs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Finished stock covers what is still open on this line.</p>
+              ) : line.needs.length > 0 ? (
                 <ul className="text-sm text-muted-foreground">
                   {line.needs.map((need) => (
                     <li key={need.materialId}>
                       <Link href={`/materials/${need.materialId}`} className="hover:underline">
                         {need.materialName}
                       </Link>{" "}
-                      × {need.quantity} for the remaining units
+                      × {need.quantity} still to make
                     </li>
                   ))}
                 </ul>
@@ -126,24 +115,14 @@ async function OrderScreen({
               )}
 
               {line.recipeId && line.remaining > 0 ? (
-                <form action={markLineBuilt} className="flex flex-wrap items-end gap-3">
-                  <input type="hidden" name="lineItemId" value={line.id} />
-                  <input type="hidden" name="orderId" value={order.id} />
-                  <Field label="Quantity to mark built">
-                    <Input
-                      name="quantity"
-                      type="number"
-                      min={1}
-                      max={line.remaining}
-                      step={1}
-                      defaultValue={line.remaining}
-                      required
-                      className="w-28"
-                    />
-                  </Field>
-                  <BlankOverride line={line} shop={shop} />
-                  <Button type="submit">Mark built</Button>
-                </form>
+                <FulfillForm
+                  action={markLineBuilt}
+                  lineItemId={line.id}
+                  orderId={order.id}
+                  remaining={line.remaining}
+                  finishedCover={line.finishedCover}
+                  blanks={blankChoices(line, shop)}
+                />
               ) : null}
             </CardContent>
           </Card>

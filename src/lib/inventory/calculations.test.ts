@@ -205,16 +205,20 @@ describe("sample shop", () => {
 
   it("rolls open orders into a buy list and flags lines with no recipe", () => {
     const need = (id: string) => report.needs.find((row) => row.materialId === id);
-    expect(need(printA)).toMatchObject({ onHand: 15, demand: 21, shortfall: 6 });
+    expect(need(printA)).toMatchObject({ onHand: 15, demand: 18, shortfall: 3 });
     expect(need("mat_blank_l")).toMatchObject({ onHand: 0, demand: 4, shortfall: 4 });
-    expect(need("mat_print_b")).toMatchObject({ onHand: 2, demand: 3, shortfall: 1 });
-    expect(need("mat_blank_sweat_s")).toMatchObject({ onHand: 1, demand: 3, shortfall: 2 });
+    expect(need("mat_print_b")).toMatchObject({ onHand: 2, demand: 2, shortfall: 0 });
+    expect(need("mat_blank_sweat_s")).toMatchObject({ onHand: 1, demand: 2, shortfall: 1 });
     expect(need("mat_blank_youth_s")).toMatchObject({ onHand: 4, demand: 3, shortfall: 0 });
     expect(need("mat_transfer")).toMatchObject({ onHand: -5, demand: 0, shortfall: 5 });
     expect(need(blankS)?.shortfall).toBe(0);
     expect(report.unmappedLines.map((line) => line.title).sort()).toEqual(["HCS Gym Shorts", "S-XL Shirts"]);
     expect(report.unitsRemaining).toBe(61);
-    expect(report.buyCount).toBe(5);
+    expect(report.buyCount).toBe(4);
+    expect(report.finishedSummary.map((row) => [row.label, row.onHand, row.covering])).toEqual([
+      ["HCS Gym Shorts · S", 3, 3],
+      ["HCS Gym Sweatpants · S / Black", 1, 1],
+    ]);
     const gildan = report.buyGroups.find((group) => group.title === "Gildan 64000");
     expect(gildan?.rows.map((row) => row.materialId)).toEqual([
       "mat_blank_youth_s",
@@ -228,12 +232,12 @@ describe("sample shop", () => {
   it("reserves shared stock for older orders before newer ones", () => {
     const line = (id: string) =>
       report.orders.flatMap((order) => order.lines).find((entry) => entry.id === id);
-    expect(line("line_1042_s")?.canBuildNow).toBe(8);
+    expect(line("line_1042_s")).toMatchObject({ finishedCover: 3, canBuildNow: 5 });
     expect(line("line_1042_m")?.canBuildNow).toBe(6);
-    expect(line("line_1048_sweat")?.canBuildNow).toBe(1);
+    expect(line("line_1048_sweat")).toMatchObject({ finishedCover: 1, canBuildNow: 1 });
     expect(line("line_1051_l")?.canBuildNow).toBe(0);
     expect(line("line_1051_custom")?.recipeId).toBeNull();
-    expect(line("line_1055_ys")).toMatchObject({ built: 2, remaining: 3, canBuildNow: 1 });
+    expect(line("line_1055_ys")).toMatchObject({ built: 2, remaining: 3, canBuildNow: 3 });
   });
 });
 

@@ -1,9 +1,11 @@
 import {
   allocateBuilds,
   buildableAlone,
+  coverWithFinished,
   demandByMaterial,
   materialNeeds,
   onHandByMaterial,
+  onHandByVariant,
   remainingDemand,
   sharedMaterialCaps,
   type DemandLine,
@@ -82,6 +84,16 @@ export type ReportInput = {
   orders: ReportOrder[];
   lines: ReportLine[];
   builds: ReportBuild[];
+  finished: { shopifyVariantId: string; quantity: number }[];
+};
+
+export type FinishedSummary = {
+  shopifyVariantId: string;
+  label: string;
+  productTitle: string;
+  onHand: number;
+  covering: number;
+  recipeId: string | null;
 };
 
 export type ReportLineView = ReportLine & {
@@ -89,6 +101,8 @@ export type ReportLineView = ReportLine & {
   remaining: number;
   recipeId: string | null;
   canBuildNow: number;
+  finishedCover: number;
+  finishedOnHand: number;
   needs: { materialId: string; materialName: string; quantity: number; role: string }[];
 };
 
@@ -144,6 +158,8 @@ export type InventoryReport = {
   orders: ReportOrderView[];
   unitsRemaining: number;
   unmappedLines: ReportLineView[];
+  finishedOnHand: Map<string, number>;
+  finishedSummary: FinishedSummary[];
 };
 
 const SIZE_RANK = ["yxs", "ys", "ym", "yl", "yxl", "xs", "s", "m", "l", "xl", "2xl"];
@@ -269,6 +285,7 @@ export function buildReport(input: ReportInput): InventoryReport {
         recipeId: mappedId,
         quantity: remaining,
         lines: concrete,
+        variantId: line.variantId,
       });
       lineDrafts.push({
         ...line,
@@ -276,9 +293,21 @@ export function buildReport(input: ReportInput): InventoryReport {
         remaining,
         recipeId: mappedId,
         canBuildNow: 0,
+        finishedCover: 0,
+        finishedOnHand: 0,
         needs: [],
       });
     }
+  }
+
+  const finishedOnHand = onHandByVariant(input.finished);
+  const covered = coverWithFinished(
+    demandLines.map((line) => ({ id: line.id, variantId: line.variantId ?? null, quantity: line.quantity })),
+    finishedOnHand,
+  );
+  for (const line of demandLines) {
+    const take = covered.get(line.id) ?? 0;
+    line.quantity = Math.max(0, line.quantity - take);
   }
 
   const demand = demandByMaterial(demandLines, new Map());
@@ -287,15 +316,18 @@ export function buildReport(input: ReportInput): InventoryReport {
   );
 
   for (const line of lineDrafts) {
+    line.finishedCover = covered.get(line.id) ?? 0;
+    line.finishedOnHand = line.variantId ? (finishedOnHand.get(line.variantId) ?? 0) : 0;
     line.canBuildNow = allocations.get(line.id) ?? 0;
     const recipeLines = concreteByLine.get(line.id);
-    if (!recipeLines || line.remaining <= 0) continue;
+    const stillToMake = Math.max(0, line.remaining - line.finishedCover);
+    if (!recipeLines || stillToMake <= 0) continue;
     line.needs = recipeLines
       .filter((recipeLine) => recipeLine.quantity > 0)
       .map((recipeLine) => ({
         materialId: recipeLine.materialId,
         materialName: materialName(materialsById, recipeLine.materialId),
-        quantity: recipeLine.quantity * line.remaining,
+        quantity: recipeLine.quantity * stillToMake,
         role: recipeLine.role ?? "other",
       }));
   }
@@ -375,6 +407,26 @@ export function buildReport(input: ReportInput): InventoryReport {
   const unmappedLines = lineDrafts.filter((line) => line.remaining > 0 && !line.recipeId);
   const unitsRemaining = orders.reduce((sum, order) => sum + order.unitsRemaining, 0);
 
+  const coveringByVariant = new Map<string, number>();
+  for (const line of lineDrafts) {
+    if (!line.variantId || line.finishedCover <= 0) continue;
+    coveringByVariant.set(line.variantId, (coveringByVariant.get(line.variantId) ?? 0) + line.finishedCover);
+  }
+  const finishedSummary: FinishedSummary[] = [...finishedOnHand.entries()]
+    .filter(([, quantity]) => quantity !== 0)
+    .map(([shopifyVariantId, quantity]) => {
+      const variant = variantsById.get(shopifyVariantId);
+      return {
+        shopifyVariantId,
+        label: variant ? `${variant.productTitle} · ${variant.title}` : shopifyVariantId,
+        productTitle: variant?.productTitle ?? "Finished",
+        onHand: quantity,
+        covering: coveringByVariant.get(shopifyVariantId) ?? 0,
+        recipeId: input.recipes.find((recipe) => recipe.shopifyProductId === variant?.productId)?.id ?? null,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+
   return {
     onHand,
     needs,
@@ -385,6 +437,8 @@ export function buildReport(input: ReportInput): InventoryReport {
     orders,
     unitsRemaining,
     unmappedLines,
+    finishedOnHand,
+    finishedSummary,
   };
 }
 

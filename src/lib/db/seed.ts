@@ -2,6 +2,7 @@ import { exampleInput, exampleVariantOptions, SAMPLE_SYNCED_AT } from "@/lib/inv
 import { openDatabase } from "./client";
 import {
   builds,
+  finishedMovements,
   materialOptions,
   materials,
   materialVariants,
@@ -38,6 +39,7 @@ export function seedDatabase() {
     tx.delete(recipeOverrides).run();
     tx.delete(recipeLines).run();
     tx.delete(recipes).run();
+    tx.delete(finishedMovements).run();
     tx.delete(movements).run();
     tx.delete(builds).run();
     tx.delete(shopifyLineItems).run();
@@ -195,6 +197,22 @@ export function seedDatabase() {
       })),
     );
     if (exclusions.length > 0) tx.insert(recipeExclusions).values(exclusions).run();
+
+    if (exampleInput.finished.length > 0) {
+      tx.insert(finishedMovements)
+        .values(
+          exampleInput.finished.map((row, index) => ({
+            id: `finished_${index + 1}`,
+            shopifyVariantId: row.shopifyVariantId,
+            type: "make",
+            quantity: row.quantity,
+            note: "Sample make-ahead. Materials were already counted in the opening ledger.",
+            buildId: null,
+            createdAt: "2026-10-26T15:00:00.000Z",
+          })),
+        )
+        .run();
+    }
 
     tx.insert(builds)
       .values(

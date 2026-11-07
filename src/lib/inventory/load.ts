@@ -3,6 +3,7 @@ import { asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import {
   builds,
+  finishedMovements,
   materialOptions,
   materials,
   materialVariants,
@@ -97,6 +98,7 @@ export const loadShop = cache(async () => {
   const orderRows = db.select().from(shopifyOrders).orderBy(asc(shopifyOrders.createdAt)).all();
   const lineRows = db.select().from(shopifyLineItems).all();
   const buildRows = db.select().from(builds).orderBy(asc(builds.createdAt)).all();
+  const finishedRows = db.select().from(finishedMovements).orderBy(asc(finishedMovements.createdAt), asc(finishedMovements.id)).all();
 
   const linesByRecipe = new Map<string, typeof recipeLineRows>();
   for (const line of recipeLineRows) {
@@ -193,6 +195,10 @@ export const loadShop = cache(async () => {
       createdAt: build.createdAt,
       note: build.note,
     })),
+    finished: finishedRows.map((movement) => ({
+      shopifyVariantId: movement.shopifyVariantId,
+      quantity: movement.quantity,
+    })),
   };
 
   const syncedAt = [...orderRows, ...productRows].reduce<string | null>((latest, row) => {
@@ -215,6 +221,7 @@ export const loadShop = cache(async () => {
     orderRows,
     lineRows,
     buildRows,
+    finishedRows,
     linesByRecipe,
     report: buildReport(input),
     syncedAt,

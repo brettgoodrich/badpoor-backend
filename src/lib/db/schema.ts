@@ -216,6 +216,26 @@ export const recipeOverrides = sqliteTable(
   ],
 );
 
+/** Completed garments, keyed by Shopify variant. On hand is the sum of signed quantities. */
+export const finishedMovements = sqliteTable(
+  "finished_movements",
+  {
+    id: text("id").primaryKey(),
+    shopifyVariantId: text("shopify_variant_id").notNull(),
+    type: text("type").notNull(),
+    quantity: real("quantity").notNull(),
+    note: text("note"),
+    buildId: text("build_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("finished_variant_idx").on(table.shopifyVariantId),
+    index("finished_build_idx").on(table.buildId),
+  ],
+);
+
+export const finishedMovementTypes = ["make", "fulfill", "adjustment"] as const;
+
 export const builds = sqliteTable(
   "builds",
   {
