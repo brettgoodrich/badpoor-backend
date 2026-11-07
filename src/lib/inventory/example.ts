@@ -1,0 +1,231 @@
+import type { ReportInput } from "./report";
+
+/**
+ * Clearly fake shop data. Numbers are chosen so the dashboard shows the
+ * owner's example: 15 of Print A, 10 Blank S, and 10 Blank M can build
+ * 10 of size S alone, and 15 garments total across sizes that share the print.
+ */
+export const SAMPLE_SYNCED_AT = "2026-11-06T18:00:00.000Z";
+
+const printA = "mat_print_a";
+const printB = "mat_print_b";
+const blankS = "mat_blank_s";
+const blankM = "mat_blank_m";
+const blankL = "mat_blank_l";
+const blankYouthS = "mat_blank_youth_s";
+const blankSweatS = "mat_blank_sweat_s";
+const blankSweatYouthL = "mat_blank_sweat_youth_l";
+const transfer = "mat_transfer";
+
+const shorts = "gid://shopify/Product/9001";
+const sweatpants = "gid://shopify/Product/9002";
+
+export const exampleInput: ReportInput = {
+  materials: [
+    { id: printA, name: "Print A", type: "print", size: null, color: null, unit: "each" },
+    { id: printB, name: "Print B", type: "print", size: null, color: null, unit: "each" },
+    { id: blankS, name: "Blank Shorts S", type: "blank", size: "S", color: null, unit: "each" },
+    { id: blankM, name: "Blank Shorts M", type: "blank", size: "M", color: null, unit: "each" },
+    { id: blankL, name: "Blank Shorts L", type: "blank", size: "L", color: null, unit: "each" },
+    {
+      id: blankYouthS,
+      name: "Blank Shorts YOUTH S",
+      type: "blank",
+      size: "YOUTH S",
+      color: null,
+      unit: "each",
+    },
+    {
+      id: blankSweatS,
+      name: "Blank Sweatpants S / Black",
+      type: "blank",
+      size: "S",
+      color: "Black",
+      unit: "each",
+    },
+    {
+      id: blankSweatYouthL,
+      name: "Blank Sweatpants YOUTH L / Black",
+      type: "blank",
+      size: "YOUTH L",
+      color: "Black",
+      unit: "each",
+    },
+    {
+      id: transfer,
+      name: "Heat transfer sheet",
+      type: "other",
+      size: null,
+      color: null,
+      unit: "sheet",
+    },
+  ],
+  movements: [
+    { materialId: printA, quantity: 17 },
+    { materialId: printA, quantity: -2 },
+    { materialId: printB, quantity: 2 },
+    { materialId: blankS, quantity: 10 },
+    { materialId: blankM, quantity: 10 },
+    { materialId: blankYouthS, quantity: 6 },
+    { materialId: blankYouthS, quantity: -2 },
+    { materialId: blankSweatS, quantity: 1 },
+    { materialId: transfer, quantity: -5 },
+  ],
+  variants: [
+    variant(shorts, "HCS Gym Shorts", "9101", "XS"),
+    variant(shorts, "HCS Gym Shorts", "9102", "S"),
+    variant(shorts, "HCS Gym Shorts", "9103", "M"),
+    variant(shorts, "HCS Gym Shorts", "9104", "L"),
+    variant(shorts, "HCS Gym Shorts", "9105", "YOUTH S"),
+    variant(shorts, "HCS Gym Shorts", "9106", "YOUTH M"),
+    variant(shorts, "HCS Gym Shorts", "9107", "YOUTH L"),
+    variant(sweatpants, "HCS Gym Sweatpants", "9201", "S / Black"),
+    variant(sweatpants, "HCS Gym Sweatpants", "9202", "M / Black"),
+    variant(sweatpants, "HCS Gym Sweatpants", "9203", "L / Black"),
+    variant(sweatpants, "HCS Gym Sweatpants", "9204", "YOUTH L / Black"),
+  ],
+  recipes: [
+    recipe("recipe_shorts_s", "gid://shopify/ProductVariant/9102", [
+      [printA, 1],
+      [blankS, 1],
+    ]),
+    recipe("recipe_shorts_m", "gid://shopify/ProductVariant/9103", [
+      [printA, 1],
+      [blankM, 1],
+    ]),
+    recipe("recipe_shorts_l", "gid://shopify/ProductVariant/9104", [
+      [printA, 1],
+      [blankL, 1],
+    ]),
+    recipe("recipe_shorts_ys", "gid://shopify/ProductVariant/9105", [
+      [printA, 1],
+      [blankYouthS, 1],
+    ]),
+    recipe("recipe_sweat_s", "gid://shopify/ProductVariant/9201", [
+      [printB, 1],
+      [blankSweatS, 1],
+    ]),
+  ],
+  orders: [
+    {
+      id: "gid://shopify/Order/1042",
+      name: "#1042",
+      createdAt: "2026-10-28T15:00:00.000Z",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      id: "gid://shopify/Order/1048",
+      name: "#1048",
+      createdAt: "2026-10-30T15:00:00.000Z",
+      fulfillmentStatus: "PARTIALLY_FULFILLED",
+    },
+    {
+      id: "gid://shopify/Order/1051",
+      name: "#1051",
+      createdAt: "2026-11-02T15:00:00.000Z",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      id: "gid://shopify/Order/1055",
+      name: "#1055",
+      createdAt: "2026-11-04T15:00:00.000Z",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+  ],
+  lines: [
+    line("gid://shopify/Order/1042", "line_1042_s", "HCS Gym Shorts", "S", "9102", 8, 8),
+    line("gid://shopify/Order/1042", "line_1042_m", "HCS Gym Shorts", "M", "9103", 6, 6),
+    line("gid://shopify/Order/1048", "line_1048_sweat", "HCS Gym Sweatpants", "S / Black", "9201", 5, 3),
+    line("gid://shopify/Order/1051", "line_1051_custom", "S-XL Shirts", null, null, 35, 35),
+    line("gid://shopify/Order/1051", "line_1051_l", "HCS Gym Shorts", "L", "9104", 4, 4),
+    line("gid://shopify/Order/1051", "line_1051_xs", "HCS Gym Shorts", "XS", "9101", 2, 2),
+    line("gid://shopify/Order/1055", "line_1055_ys", "HCS Gym Shorts", "YOUTH S", "9105", 5, 5),
+  ],
+  builds: [
+    {
+      id: "build_youth_sample",
+      lineItemId: "line_1055_ys",
+      quantity: 2,
+      createdAt: "2026-11-05T16:00:00.000Z",
+      note: "Sample build recorded locally. Shopify was not updated.",
+    },
+  ],
+};
+
+function variant(
+  productId: string,
+  productTitle: string,
+  numericId: string,
+  title: string,
+): ReportInput["variants"][number] {
+  return {
+    id: `gid://shopify/ProductVariant/${numericId}`,
+    productId,
+    productTitle,
+    title,
+    sku: null,
+  };
+}
+
+function recipe(
+  id: string,
+  variantId: string,
+  lines: [string, number][],
+): ReportInput["recipes"][number] {
+  return {
+    id,
+    matchType: "variant",
+    shopifyVariantId: variantId,
+    customTitle: null,
+    lines: lines.map(([materialId, quantity]) => ({ materialId, quantity })),
+  };
+}
+
+function line(
+  orderId: string,
+  id: string,
+  title: string,
+  variantTitle: string | null,
+  variantNumericId: string | null,
+  quantity: number,
+  unfulfilledQuantity: number,
+): ReportInput["lines"][number] {
+  const name = variantTitle ? `${title} - ${variantTitle}` : title;
+  return {
+    id,
+    orderId,
+    title,
+    name,
+    variantTitle,
+    variantId: variantNumericId ? `gid://shopify/ProductVariant/${variantNumericId}` : null,
+    sku: null,
+    quantity,
+    unfulfilledQuantity,
+  };
+}
+
+export const exampleVariantOptions: Record<string, { name: string; value: string }[]> = {
+  "gid://shopify/ProductVariant/9101": [{ name: "Size", value: "XS" }],
+  "gid://shopify/ProductVariant/9102": [{ name: "Size", value: "S" }],
+  "gid://shopify/ProductVariant/9103": [{ name: "Size", value: "M" }],
+  "gid://shopify/ProductVariant/9104": [{ name: "Size", value: "L" }],
+  "gid://shopify/ProductVariant/9105": [{ name: "Size", value: "YOUTH S" }],
+  "gid://shopify/ProductVariant/9106": [{ name: "Size", value: "YOUTH M" }],
+  "gid://shopify/ProductVariant/9107": [{ name: "Size", value: "YOUTH L" }],
+  "gid://shopify/ProductVariant/9201": [
+    { name: "Size", value: "S" },
+    { name: "Color", value: "Black" },
+  ],
+  "gid://shopify/ProductVariant/9202": [
+    { name: "Size", value: "M" },
+    { name: "Color", value: "Black" },
+  ],
+  "gid://shopify/ProductVariant/9203": [
+    { name: "Size", value: "L" },
+    { name: "Color", value: "Black" },
+  ],
+  "gid://shopify/ProductVariant/9204": [
+    { name: "Size", value: "YOUTH L" },
+    { name: "Color", value: "Black" },
+  ],
+};
