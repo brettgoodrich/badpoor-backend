@@ -18,19 +18,27 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). The seed loads a fake shop (fake Shopify ids, fake orders) so the dashboard works with no token. `npm run db:seed` wipes the local database and does not call Shopify.
 
-Leave the token blank until you want a live read. The SQLite file lives at `data/inventory.sqlite` (or `DATABASE_PATH`). It is gitignored. Do not commit `.env` or a database.
+Leave the Shopify credentials blank until you want a live read. The SQLite file lives at `data/inventory.sqlite` (or `DATABASE_PATH`). It is gitignored. Do not commit `.env` or a database. The client secret and access token stay in the environment and are never written to the database or logs.
 
-## Shopify custom app
+## Shopify app
 
 The sync is read-only. Scopes: `read_orders` and `read_products`.
 
-1. In the Shopify admin, go to **Settings → Apps and sales channels → Develop apps**.
-2. Allow custom app development if the store has not already.
-3. Create an app (any name, for example “Bench materials”).
-4. Open **Configuration → Admin API integration** and select `read_orders` and `read_products`. Save.
-5. Install the app on the store and reveal the **Admin API access token** once. Copy it into `.env` as `SHOPIFY_ADMIN_ACCESS_TOKEN`.
+Since January 1, 2026, Shopify no longer lets you create a new admin custom app, so there is no static `shpat_` token to copy out of the admin. New apps are created in the Dev Dashboard and sign in with the [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant). See also [Access tokens](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens) and the [legacy custom apps](https://shopify.dev/docs/apps/build/authentication-authorization/legacy/admin-custom-apps) note.
+
+1. In the Shopify admin, go to **Settings → Apps and sales channels → Develop apps**, then **Build apps in Dev Dashboard**. You can also open it from the store name menu with **View Dev Dashboard**. ([Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard))
+2. Create an app. ([Create apps using the Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard/create-apps-using-dev-dashboard))
+3. Open the app’s **Versions** tab. Set the access scopes to `read_orders,read_products` and **Release** the version. The app needs a released version before it can be installed.
+4. Install it on the store. From Dev Dashboard **Home** (or the Apps list), open the app and choose **Install app** on the Installs card. Pick this store and confirm **Install**.
+5. Open the app’s **Settings** and copy the **Client ID** and **Client secret** into `.env` as `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`.
 6. Set `SHOPIFY_STORE_DOMAIN=feb098-c4.myshopify.com` (no `https://`, no path).
 7. Restart `npm run dev`, open **Orders**, and choose **Sync from Shopify**.
+
+The app posts `grant_type=client_credentials` with the client id and secret to `https://{shop}.myshopify.com/admin/oauth/access_token`. Shopify returns `access_token`, `scope`, and `expires_in` (86399 seconds, 24 hours). Do not send a `scope` parameter; the token carries the scopes the store granted. The token is cached in memory and requested again shortly before it expires, or once after an Admin API 401. It is not stored in SQLite.
+
+`shop_not_permitted` means the app and the store are not in the same Shopify organization. Both have to show up under the same org in the Dev Dashboard. Owning the store, or having the app installed, is not enough if they live in different orgs.
+
+If you already have a legacy static token, set `SHOPIFY_ADMIN_ACCESS_TOKEN` and the app uses it as-is instead of the client credentials grant.
 
 The query uses Admin API `2026-10`. It loads products and variants, plus orders that are open and unfulfilled or partially fulfilled, including each line’s unfulfilled quantity. Lines with no recipe are called out on the dashboard. Customer fields are not requested.
 
@@ -53,9 +61,10 @@ With the sample data: 15 of Print A, 10 Blank Shorts S, and 10 Blank Shorts M. S
 | --- | --- |
 | `npm run dev` | Next.js dev server |
 | `npm run db:migrate` | Apply Drizzle migrations to the local SQLite file |
+| `npm run db:reset` | Delete the local SQLite file (and its `-wal` / `-shm` sidecars) and create an empty migrated database. Does not load sample data. Stop `npm run dev` first so the server is not still holding the old file. |
 | `npm run db:generate` | Generate a new migration after a schema change |
-| `npm run db:seed` | Reset the local database with fake sample data |
-| `npm test` | Unit tests for needs, shortfall, and buildable counts |
+| `npm run db:seed` | Replace the local database with fake sample data |
+| `npm test` | Unit tests for needs, shortfall, buildable counts, and Shopify token caching |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | Production build |
