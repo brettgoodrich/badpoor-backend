@@ -138,7 +138,7 @@ export function RecipeSetupForm({
                   <td className="py-2 pr-3">
                     <input
                       type="checkbox"
-                      className="size-4"
+                      className="size-4 accent-primary"
                       checked={row.include}
                       aria-label={`Include ${variant.title}`}
                       onChange={(event) => updateRow(setRows, variant.id, { include: event.target.checked })}

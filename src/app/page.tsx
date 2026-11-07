@@ -59,7 +59,7 @@ async function Dashboard({
       </section>
 
       {report.unmappedLines.length > 0 ? (
-        <Card className="border-destructive/30 bg-destructive/5">
+        <Card className="border-destructive/40 bg-destructive/10">
           <CardHeader>
             <CardTitle>No recipe yet</CardTitle>
             <CardDescription>

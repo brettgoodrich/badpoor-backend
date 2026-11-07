@@ -52,7 +52,7 @@ async function Recipes({
       <Notice notice={one(query.notice)} error={one(query.error)} />
 
       {shop.report.unmappedLines.length > 0 ? (
-        <Card className="border-destructive/30">
+        <Card className="border-destructive/40 bg-destructive/10">
           <CardHeader>
             <CardTitle>Open lines waiting for a recipe</CardTitle>
             <CardDescription>Until these are mapped, their materials stay off the buy list.</CardDescription>

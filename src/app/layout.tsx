@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Fraunces, Geist_Mono, Outfit } from "next/font/google";
-import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/app-shell";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -29,11 +30,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${outfit.variable} ${fraunces.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <AppShell>{children}</AppShell>
-        <Toaster theme="light" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.addEventListener('click',function(event){var button=event.target&&event.target.closest&&event.target.closest('[data-theme-value]');if(!button)return;var value=button.getAttribute('data-theme-value');var dark=value==='dark'||(value==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(dark?'dark':'light');root.style.colorScheme=dark?'dark':'light';try{localStorage.setItem('theme',value)}catch(e){}document.querySelectorAll('[data-theme-value]').forEach(function(el){el.setAttribute('aria-pressed',el.getAttribute('data-theme-value')===value?'true':'false')})});`,
+          }}
+        />
+        <ThemeProvider>
+          <AppShell>{children}</AppShell>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
