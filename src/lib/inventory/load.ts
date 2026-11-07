@@ -3,14 +3,18 @@ import { asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import {
   builds,
+  materialOptions,
   materials,
+  materialVariants,
   movements,
+  printSeries,
   recipeLines,
   recipes,
   shopifyLineItems,
   shopifyOrders,
   shopifyProducts,
   shopifyVariants,
+  stockId,
 } from "@/lib/db/schema";
 import type { SelectedOption } from "./matching";
 import { buildReport, type ReportInput, type ReportRecipe } from "./report";
@@ -30,9 +34,57 @@ export function parseOptions(raw: string): SelectedOption[] {
   }
 }
 
+export function variantLabel(modelName: string, size: string, color: string) {
+  return `${modelName} · ${size} / ${color}`;
+}
+
+export function stockChoices(input: {
+  seriesRows: { id: string; name: string }[];
+  materialRows: { id: string; name: string; type: string; unit: string; seriesId: string | null }[];
+  blankVariantRows: { id: string; materialId: string; size: string; color: string; archivedAt: string | null }[];
+}) {
+  const seriesName = new Map(input.seriesRows.map((series) => [series.id, series.name]));
+  const models = new Map(input.materialRows.map((material) => [material.id, material]));
+  return [
+    ...input.materialRows
+      .filter((material) => material.type === "print")
+      .map((material) => ({
+        id: material.id,
+        name: material.seriesId ? `${seriesName.get(material.seriesId) ?? "Series"} · ${material.name}` : material.name,
+        unit: material.unit,
+        materialId: material.id,
+        variantId: null as string | null,
+        role: "print",
+      })),
+    ...input.blankVariantRows
+      .filter((variant) => !variant.archivedAt)
+      .map((variant) => ({
+        id: variant.id,
+        name: variantLabel(models.get(variant.materialId)?.name ?? "Blank", variant.size, variant.color),
+        unit: models.get(variant.materialId)?.unit ?? "each",
+        materialId: variant.materialId,
+        variantId: variant.id as string | null,
+        role: "blank",
+      })),
+    ...input.materialRows
+      .filter((material) => material.type !== "print" && material.type !== "blank")
+      .map((material) => ({
+        id: material.id,
+        name: material.name,
+        unit: material.unit,
+        materialId: material.id,
+        variantId: null as string | null,
+        role: "other",
+      })),
+  ];
+}
+
 export const loadShop = cache(async () => {
   const db = await getDb();
+  const seriesRows = db.select().from(printSeries).orderBy(asc(printSeries.name)).all();
   const materialRows = db.select().from(materials).orderBy(asc(materials.name)).all();
+  const optionRows = db.select().from(materialOptions).orderBy(asc(materialOptions.position), asc(materialOptions.value)).all();
+  const blankVariantRows = db.select().from(materialVariants).all();
   const movementRows = db.select().from(movements).orderBy(asc(movements.createdAt), asc(movements.id)).all();
   const recipeRows = db.select().from(recipes).all();
   const recipeLineRows = db.select().from(recipeLines).all();
@@ -49,28 +101,55 @@ export const loadShop = cache(async () => {
     linesByRecipe.set(line.recipeId, list);
   }
 
+  const seriesName = new Map(seriesRows.map((series) => [series.id, series.name]));
+  const materialById = new Map(materialRows.map((material) => [material.id, material]));
+  const stockMaterials: ReportInput["materials"] = [
+    ...materialRows
+      .filter((material) => material.type !== "blank")
+      .map((material) => ({
+        id: material.id,
+        name: material.name,
+        type: material.type,
+        size: null,
+        color: null,
+        unit: material.unit,
+        modelId: material.id,
+        modelName: material.name,
+        seriesName: material.seriesId ? (seriesName.get(material.seriesId) ?? null) : null,
+      })),
+    ...blankVariantRows.map((variant) => {
+      const model = materialById.get(variant.materialId);
+      const modelName = model?.name ?? "Blank";
+      return {
+        id: variant.id,
+        name: variantLabel(modelName, variant.size, variant.color),
+        type: "blank",
+        size: variant.size,
+        color: variant.color,
+        unit: model?.unit ?? "each",
+        modelId: variant.materialId,
+        modelName,
+        seriesName: null,
+      };
+    }),
+  ];
+
   const recipesForReport: ReportRecipe[] = recipeRows.map((recipe) => ({
     id: recipe.id,
     matchType: recipe.matchType === "custom_title" ? "custom_title" : "variant",
     shopifyVariantId: recipe.shopifyVariantId,
     customTitle: recipe.customTitle,
     lines: (linesByRecipe.get(recipe.id) ?? []).map((line) => ({
-      materialId: line.materialId,
+      materialId: stockId(line.materialId, line.variantId),
       quantity: line.quantity,
+      role: line.role,
     })),
   }));
 
   const input: ReportInput = {
-    materials: materialRows.map((material) => ({
-      id: material.id,
-      name: material.name,
-      type: material.type,
-      size: material.size,
-      color: material.color,
-      unit: material.unit,
-    })),
+    materials: stockMaterials,
     movements: movementRows.map((movement) => ({
-      materialId: movement.materialId,
+      materialId: stockId(movement.materialId, movement.variantId),
       quantity: movement.quantity,
     })),
     recipes: recipesForReport,
@@ -113,7 +192,10 @@ export const loadShop = cache(async () => {
   }, null);
 
   return {
+    seriesRows,
     materialRows,
+    optionRows,
+    blankVariantRows,
     movementRows,
     recipeRows,
     recipeLineRows,

@@ -3,12 +3,12 @@
 import { eq } from "drizzle-orm";
 import { redirectWith, refreshShop } from "@/lib/action";
 import { getDb } from "@/lib/db";
-import { materials, recipeLines, recipes, shopifyVariants } from "@/lib/db/schema";
+import { materialVariants, materials, recipeLines, recipes, shopifyVariants } from "@/lib/db/schema";
 import { readString } from "@/lib/format";
 import { normalizeTitle } from "@/lib/inventory/matching";
 
 type Database = Awaited<ReturnType<typeof getDb>>;
-type LineInput = { materialId: string; quantity: number };
+type LineInput = { materialId: string; variantId: string | null; role: string; quantity: number };
 
 function parseLineList(raw: string): { ok: true; lines: LineInput[] } | { ok: false; error: string } {
   let parsed: unknown;
@@ -23,20 +23,42 @@ function parseLineList(raw: string): { ok: true; lines: LineInput[] } | { ok: fa
   for (const entry of parsed) {
     if (!entry || typeof entry !== "object") continue;
     const materialId = "materialId" in entry && typeof entry.materialId === "string" ? entry.materialId.trim() : "";
+    const variantId = "variantId" in entry && typeof entry.variantId === "string" && entry.variantId.trim() ? entry.variantId.trim() : null;
+    const role = "role" in entry && typeof entry.role === "string" ? entry.role : variantId ? "blank" : "other";
     const quantity = "quantity" in entry ? Number(entry.quantity) : Number.NaN;
-    if (!materialId) continue;
+    if (!materialId && !variantId) continue;
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return { ok: false, error: "Each material needs a quantity greater than zero." };
     }
-    lines.push({ materialId, quantity });
+    lines.push({ materialId, variantId, role, quantity });
   }
   if (lines.length === 0) return { ok: false, error: "Add at least one material." };
   return { ok: true, lines };
 }
 
-function missingMaterial(database: Database, materialIds: string[]) {
-  const known = new Set(database.select({ id: materials.id }).from(materials).all().map((row) => row.id));
-  return materialIds.some((id) => !known.has(id)) ? "One of those materials no longer exists." : null;
+function missingMaterial(database: Database, lines: LineInput[]) {
+  const knownMaterials = new Set(database.select({ id: materials.id }).from(materials).all().map((row) => row.id));
+  const knownVariants = new Map(
+    database.select().from(materialVariants).all().map((variant) => [variant.id, variant.materialId]),
+  );
+  for (const line of lines) {
+    if (line.variantId) {
+      const parent = knownVariants.get(line.variantId);
+      if (!parent) return "One of those blank variants no longer exists.";
+      line.materialId = parent;
+      if (!line.role) line.role = "blank";
+      continue;
+    }
+    if (!knownMaterials.has(line.materialId)) return "One of those materials no longer exists.";
+    const material = database.select().from(materials).where(eq(materials.id, line.materialId)).get();
+    if (!line.role || line.role === "other") {
+      line.role = material?.type === "print" ? "print" : material?.type === "blank" ? "blank" : "other";
+    }
+    if (material?.type === "blank" && !line.variantId) {
+      return "Pick a size and color variant for the blank, not the model itself.";
+    }
+  }
+  return null;
 }
 
 function replaceVariantRecipe(
@@ -69,6 +91,8 @@ function replaceVariantRecipe(
           id: crypto.randomUUID(),
           recipeId: id,
           materialId: line.materialId,
+          variantId: line.variantId,
+          role: line.role,
           quantity: line.quantity,
         })),
       )
@@ -111,7 +135,7 @@ export async function saveBulkRecipes(formData: FormData) {
   }
   const missing = missingMaterial(
     database,
-    selected.flatMap((row) => row.lines.map((line) => line.materialId)),
+    selected.flatMap((row) => row.lines),
   );
   if (missing) redirectWith("/recipes/setup", "error", missing);
 
@@ -133,10 +157,7 @@ export async function saveCustomRecipe(formData: FormData) {
   if (!parsed.ok) redirectWith("/recipes/custom", "error", parsed.error);
 
   const database = await getDb();
-  const missing = missingMaterial(
-    database,
-    parsed.lines.map((line) => line.materialId),
-  );
+  const missing = missingMaterial(database, parsed.lines);
   if (missing) redirectWith("/recipes/custom", "error", missing);
 
   const normalized = normalizeTitle(title);
@@ -174,6 +195,8 @@ export async function saveCustomRecipe(formData: FormData) {
           id: crypto.randomUUID(),
           recipeId: id,
           materialId: line.materialId,
+          variantId: line.variantId,
+          role: line.role,
           quantity: line.quantity,
         })),
       )
@@ -192,10 +215,7 @@ export async function updateRecipe(formData: FormData) {
   const database = await getDb();
   const existing = database.select().from(recipes).where(eq(recipes.id, id)).get();
   if (!existing) redirectWith("/recipes", "error", "That recipe is gone.");
-  const missing = missingMaterial(
-    database,
-    parsed.lines.map((line) => line.materialId),
-  );
+  const missing = missingMaterial(database, parsed.lines);
   if (missing) redirectWith(`/recipes/${id}`, "error", missing);
 
   database.transaction((tx) => {
@@ -210,6 +230,8 @@ export async function updateRecipe(formData: FormData) {
           id: crypto.randomUUID(),
           recipeId: id,
           materialId: line.materialId,
+          variantId: line.variantId,
+          role: line.role,
           quantity: line.quantity,
         })),
       )

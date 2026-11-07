@@ -7,7 +7,7 @@ import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { cn } from "cn";
 import { one } from "@/lib/format";
-import { loadShop } from "@/lib/inventory/load";
+import { loadShop, variantLabel } from "@/lib/inventory/load";
 
 export default function RecipesPage({ searchParams }: PageProps<"/recipes">) {
   return (
@@ -52,7 +52,7 @@ async function Recipes({
       <Notice notice={one(query.notice)} error={one(query.error)} />
 
       {shop.report.unmappedLines.length > 0 ? (
-        <Card className="border-destructive/30">
+        <Card className="border-destructive/40 bg-destructive/10">
           <CardHeader>
             <CardTitle>Open lines waiting for a recipe</CardTitle>
             <CardDescription>Until these are mapped, their materials stay off the buy list.</CardDescription>
@@ -97,7 +97,13 @@ async function Recipes({
                   {lines
                     .map((line) => {
                       const material = materials.get(line.materialId);
-                      return `${material?.name ?? "Missing material"} × ${line.quantity}`;
+                      const blank = line.variantId
+                        ? shop.blankVariantRows.find((variant) => variant.id === line.variantId)
+                        : undefined;
+                      const name = blank
+                        ? variantLabel(material?.name ?? "Blank", blank.size, blank.color)
+                        : (material?.name ?? "Missing material");
+                      return `${name} × ${line.quantity}`;
                     })
                     .join(" · ") || "No materials"}
                 </CardContent>

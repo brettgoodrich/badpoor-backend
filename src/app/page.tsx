@@ -59,7 +59,7 @@ async function Dashboard({
       </section>
 
       {report.unmappedLines.length > 0 ? (
-        <Card className="border-destructive/30 bg-destructive/5">
+        <Card className="border-destructive/40 bg-destructive/10">
           <CardHeader>
             <CardTitle>No recipe yet</CardTitle>
             <CardDescription>
@@ -97,38 +97,46 @@ async function Dashboard({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {report.needs.length === 0 ? (
+            {report.buyGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing to buy. Open orders are covered, and no material is negative.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Material</TableHead>
-                    <TableHead className="text-right">On hand</TableHead>
-                    <TableHead className="text-right">Needed</TableHead>
-                    <TableHead className="text-right">Buy</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {report.needs.map((row) => (
-                    <TableRow key={row.materialId}>
-                      <TableCell>
-                        <Link href={`/materials/${row.materialId}`} className="font-medium hover:underline">
-                          {row.materialName}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">{row.type}</div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Qty value={row.onHand} unit={row.unit} />
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{row.demand}</TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">
-                        {row.shortfall > 0 ? <span className="text-destructive">{row.shortfall}</span> : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="grid gap-5">
+                {report.buyGroups.map((group) => (
+                  <div key={group.key} className="grid gap-2">
+                    <h2 className="font-heading text-lg">
+                      <Link href={`/materials/${group.rows[0]?.modelId ?? ""}`} className="hover:underline">
+                        {group.title}
+                      </Link>
+                    </h2>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Size / color</TableHead>
+                          <TableHead className="text-right">On hand</TableHead>
+                          <TableHead className="text-right">Needed</TableHead>
+                          <TableHead className="text-right">Buy</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.rows.map((row) => (
+                          <TableRow key={row.materialId}>
+                            <TableCell>
+                              <span className="font-medium">{row.materialName.replace(`${group.title} · `, "")}</span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Qty value={row.onHand} unit={row.unit} />
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{row.demand}</TableCell>
+                            <TableCell className="text-right font-medium tabular-nums">
+                              {row.shortfall > 0 ? <span className="text-destructive">{row.shortfall}</span> : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

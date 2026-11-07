@@ -6,6 +6,7 @@ export type Movement = {
 export type RecipeLine = {
   materialId: string;
   quantity: number;
+  role?: string;
 };
 
 export type Recipe = {
@@ -211,4 +212,17 @@ export function allocateBuilds(
   }
 
   return allocations;
+}
+
+/**
+ * Ledger rows for marking a quantity built.
+ * A blank override replaces only the blank line for this build. The recipe stays as it was.
+ */
+export function consumptionForBuild(lines: RecipeLine[], quantity: number, blankOverrideId: string | null) {
+  return lines
+    .filter((line) => line.quantity > 0)
+    .map((line) => ({
+      materialId: line.role === "blank" && blankOverrideId ? blankOverrideId : line.materialId,
+      quantity: roundQty(-line.quantity * quantity),
+    }));
 }

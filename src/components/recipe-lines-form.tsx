@@ -5,7 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/native-select";
 
-type MaterialOption = { id: string; name: string; unit: string };
+type MaterialOption = {
+  id: string;
+  name: string;
+  unit: string;
+  materialId: string;
+  variantId: string | null;
+  role: string;
+};
 type Line = { materialId: string; quantity: string };
 
 export function RecipeLinesForm({
@@ -30,7 +37,21 @@ export function RecipeLinesForm({
   return (
     <form action={action} className="grid gap-4">
       {children}
-      <input type="hidden" name="lines" value={JSON.stringify(lines)} />
+      <input
+        type="hidden"
+        name="lines"
+        value={JSON.stringify(
+          lines.map((line) => {
+            const stock = materials.find((material) => material.id === line.materialId);
+            return {
+              materialId: stock?.materialId ?? line.materialId,
+              variantId: stock?.variantId ?? null,
+              role: stock?.role ?? "other",
+              quantity: line.quantity,
+            };
+          }),
+        )}
+      />
       <div className="grid gap-2">
         {lines.map((line, index) => (
           <div key={index} className="grid gap-2 sm:grid-cols-[1fr_7rem_auto]">

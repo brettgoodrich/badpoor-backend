@@ -25,6 +25,67 @@ function normalizePart(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null;
 }
 
+const SIZE_ALIASES: Record<string, string> = {
+  xs: "xs",
+  "extra small": "xs",
+  s: "s",
+  small: "s",
+  m: "m",
+  med: "m",
+  medium: "m",
+  l: "l",
+  large: "l",
+  xl: "xl",
+  "extra large": "xl",
+  xxl: "2xl",
+  "2xl": "2xl",
+  "2x": "2xl",
+  yxs: "yxs",
+  "youth xs": "yxs",
+  "youth extra small": "yxs",
+  ys: "ys",
+  "youth s": "ys",
+  "youth small": "ys",
+  ym: "ym",
+  "youth m": "ym",
+  "youth medium": "ym",
+  yl: "yl",
+  "youth l": "yl",
+  "youth large": "yl",
+  yxl: "yxl",
+  "youth xl": "yxl",
+  "youth extra large": "yxl",
+};
+
+const COLOR_ALIASES: Record<string, string> = {
+  black: "black",
+  blk: "black",
+  white: "white",
+  wht: "white",
+  navy: "navy",
+  nav: "navy",
+  red: "red",
+  royal: "royal",
+  "royal blue": "royal",
+  grey: "gray",
+  gray: "gray",
+  sport: "sport grey",
+  "sport grey": "sport grey",
+  "sport gray": "sport grey",
+};
+
+export function canonicalSize(value: string | null | undefined) {
+  const key = normalizePart(value);
+  if (!key) return null;
+  return SIZE_ALIASES[key] ?? key;
+}
+
+export function canonicalColor(value: string | null | undefined) {
+  const key = normalizePart(value);
+  if (!key) return null;
+  return COLOR_ALIASES[key] ?? key;
+}
+
 export function variantSizeAndColor(options: SelectedOption[], variantTitle: string) {
   const sizeOption = options.find((option) => /size/i.test(option.name));
   const colorOption = options.find((option) => /colou?r/i.test(option.name));
@@ -50,36 +111,22 @@ export function variantSizeAndColor(options: SelectedOption[], variantTitle: str
 }
 
 /**
- * Pick the blank whose size matches the variant, preferring a color match when both sides have one.
- * A color-specific blank does not match a variant that has no color.
+ * Pick the blank variant whose size and color match, treating Small as S and YOUTH L as YL.
+ * When the Shopify variant names a color, only that color matches.
+ * When it has no color, match only if that size exists in exactly one color.
  */
 export function matchBlank(
   variant: { options: SelectedOption[]; title: string },
   blanks: BlankCandidate[],
 ) {
   const { size, color } = variantSizeAndColor(variant.options, variant.title);
-  const wantedSize = normalizePart(size);
-  const wantedColor = normalizePart(color);
-  let best: { id: string; score: number } | null = null;
-
-  for (const blank of blanks) {
-    const blankSize = normalizePart(blank.size);
-    const blankColor = normalizePart(blank.color);
-    if (wantedSize !== blankSize) continue;
-    if (blankColor && wantedColor && blankColor !== wantedColor) continue;
-    if (blankColor && !wantedColor) continue;
-
-    let score = 1;
-    if (wantedSize && blankSize === wantedSize) score += 2;
-    if (wantedColor && blankColor === wantedColor) score += 3;
-    if (wantedColor && !blankColor) score += 1;
-
-    if (!best || score > best.score) {
-      best = { id: blank.id, score };
-    }
+  const wantedSize = canonicalSize(size);
+  const wantedColor = canonicalColor(color);
+  const sized = blanks.filter((blank) => canonicalSize(blank.size) === wantedSize);
+  if (wantedColor) {
+    return sized.find((blank) => canonicalColor(blank.color) === wantedColor)?.id ?? null;
   }
-
-  return best?.id ?? null;
+  return sized.length === 1 ? (sized[0]?.id ?? null) : null;
 }
 
 export function resolveRecipeId(

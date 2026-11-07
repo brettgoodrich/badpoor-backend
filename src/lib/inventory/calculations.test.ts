@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   allocateBuilds,
   buildableAlone,
+  consumptionForBuild,
   demandByMaterial,
   materialNeeds,
   onHandByMaterial,
@@ -11,7 +12,7 @@ import {
   type Recipe,
 } from "./calculations";
 import { exampleInput, exampleVariantOptions } from "./example";
-import { matchBlank } from "./matching";
+import { canonicalSize, matchBlank } from "./matching";
 import { buildReport } from "./report";
 
 const printA = "mat_print_a";
@@ -182,11 +183,11 @@ describe("sample shop", () => {
     const byRecipe = new Map(report.buildable.map((row) => [row.recipeId, row]));
     expect(byRecipe.get("recipe_shorts_s")).toMatchObject({
       count: 10,
-      limitingMaterialName: "Blank Shorts S",
+      limitingMaterialName: "Gildan 64000 · S / Black",
     });
     expect(byRecipe.get("recipe_shorts_m")).toMatchObject({
       count: 10,
-      limitingMaterialName: "Blank Shorts M",
+      limitingMaterialName: "Gildan 64000 · M / Black",
     });
     const shorts = report.buildableGroups.find((group) => group.productTitle === "HCS Gym Shorts");
     expect(shorts?.shared).toEqual([
@@ -215,6 +216,14 @@ describe("sample shop", () => {
     expect(report.unmappedLines.map((line) => line.title).sort()).toEqual(["HCS Gym Shorts", "S-XL Shirts"]);
     expect(report.unitsRemaining).toBe(61);
     expect(report.buyCount).toBe(5);
+    const gildan = report.buyGroups.find((group) => group.title === "Gildan 64000");
+    expect(gildan?.rows.map((row) => row.materialId)).toEqual([
+      "mat_blank_youth_s",
+      "mat_blank_s",
+      "mat_blank_m",
+      "mat_blank_l",
+    ]);
+    expect(report.buyGroups.some((group) => group.title === "PTF Uniforms 2026")).toBe(true);
   });
 
   it("reserves shared stock for older orders before newer ones", () => {
@@ -229,18 +238,64 @@ describe("sample shop", () => {
   });
 });
 
+describe("build override consumption", () => {
+  it("consumes the chosen blank for this build and leaves the print on the recipe", () => {
+    expect(
+      consumptionForBuild(
+        [
+          { materialId: "print-a", quantity: 1, role: "print" },
+          { materialId: "blank-ys", quantity: 1, role: "blank" },
+        ],
+        2,
+        "blank-adult-s",
+      ),
+    ).toEqual([
+      { materialId: "print-a", quantity: -2 },
+      { materialId: "blank-adult-s", quantity: -2 },
+    ]);
+  });
+
+  it("uses the recipe blank when the build has no override", () => {
+    expect(
+      consumptionForBuild(
+        [
+          { materialId: "print-a", quantity: 1, role: "print" },
+          { materialId: "blank-ys", quantity: 1, role: "blank" },
+        ],
+        1,
+        null,
+      ),
+    ).toEqual([
+      { materialId: "print-a", quantity: -1 },
+      { materialId: "blank-ys", quantity: -1 },
+    ]);
+  });
+});
+
 describe("blank matching", () => {
   const blanks = exampleInput.materials
     .filter((material) => material.type === "blank")
     .map((material) => ({ id: material.id, size: material.size, color: material.color }));
 
-  it("maps a size-only variant to the size-only blank", () => {
+  it("maps a size-only variant when that size has one color", () => {
     expect(
       matchBlank(
         { title: "S", options: exampleVariantOptions["gid://shopify/ProductVariant/9102"] },
-        blanks,
+        blanks.filter((blank) => blank.id === blankS),
       ),
     ).toBe(blankS);
+  });
+
+  it("does not guess when a size-only variant could be more than one color", () => {
+    expect(
+      matchBlank(
+        { title: "S", options: [{ name: "Size", value: "S" }] },
+        [
+          { id: "s-black", size: "S", color: "Black" },
+          { id: "s-navy", size: "S", color: "Navy" },
+        ],
+      ),
+    ).toBeNull();
   });
 
   it("prefers the color-specific blank when the variant names a color", () => {
@@ -250,9 +305,27 @@ describe("blank matching", () => {
           title: "S / Black",
           options: exampleVariantOptions["gid://shopify/ProductVariant/9201"],
         },
-        blanks,
+        [
+          { id: "s-navy", size: "S", color: "Navy" },
+          { id: "mat_blank_sweat_s", size: "S", color: "Black" },
+        ],
       ),
     ).toBe("mat_blank_sweat_s");
+  });
+
+  it("treats size words and youth aliases as the same size", () => {
+    expect(canonicalSize("Small")).toBe("s");
+    expect(canonicalSize("YOUTH L")).toBe("yl");
+    expect(canonicalSize("Youth Large")).toBe("yl");
+    expect(
+      matchBlank(
+        { title: "Small / Black", options: [{ name: "Size", value: "Small" }, { name: "Color", value: "Black" }] },
+        [
+          { id: "adult-s", size: "S", color: "Black" },
+          { id: "youth", size: "YS", color: "Black" },
+        ],
+      ),
+    ).toBe("adult-s");
   });
 
   it("reads size and color out of a title when options are missing", () => {

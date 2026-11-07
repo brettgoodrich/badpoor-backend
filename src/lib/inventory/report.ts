@@ -9,7 +9,7 @@ import {
   type DemandLine,
   type Recipe,
 } from "./calculations";
-import { resolveRecipeId, type RecipeMatch } from "./matching";
+import { canonicalSize, resolveRecipeId, type RecipeMatch } from "./matching";
 
 export type ReportMaterial = {
   id: string;
@@ -18,6 +18,9 @@ export type ReportMaterial = {
   size: string | null;
   color: string | null;
   unit: string;
+  modelId?: string;
+  modelName?: string;
+  seriesName?: string | null;
 };
 
 export type ReportMovement = {
@@ -30,7 +33,7 @@ export type ReportRecipe = {
   matchType: "variant" | "custom_title";
   shopifyVariantId: string | null;
   customTitle: string | null;
-  lines: { materialId: string; quantity: number }[];
+  lines: { materialId: string; quantity: number; role?: string }[];
 };
 
 export type ReportVariant = {
@@ -83,7 +86,7 @@ export type ReportLineView = ReportLine & {
   remaining: number;
   recipeId: string | null;
   canBuildNow: number;
-  needs: { materialId: string; materialName: string; quantity: number }[];
+  needs: { materialId: string; materialName: string; quantity: number; role: string }[];
 };
 
 export type ReportOrderView = ReportOrder & {
@@ -113,6 +116,12 @@ export type BuildableGroup = {
   }[];
 };
 
+export type BuyGroup = {
+  key: string;
+  title: string;
+  rows: InventoryReport["needs"];
+};
+
 export type InventoryReport = {
   onHand: Map<string, number>;
   needs: {
@@ -120,17 +129,71 @@ export type InventoryReport = {
     materialName: string;
     type: string;
     unit: string;
+    modelId: string;
     onHand: number;
     demand: number;
     shortfall: number;
   }[];
   buyCount: number;
+  buyGroups: BuyGroup[];
   buildable: BuildableRow[];
   buildableGroups: BuildableGroup[];
   orders: ReportOrderView[];
   unitsRemaining: number;
   unmappedLines: ReportLineView[];
 };
+
+const SIZE_RANK = ["yxs", "ys", "ym", "yl", "yxl", "xs", "s", "m", "l", "xl", "2xl"];
+
+function groupBuyList(
+  needs: InventoryReport["needs"],
+  materialsById: Map<string, ReportMaterial>,
+): BuyGroup[] {
+  const order: string[] = [];
+  const groups = new Map<string, BuyGroup>();
+  for (const row of needs) {
+    const material = materialsById.get(row.materialId);
+    const key =
+      material?.type === "blank"
+        ? `blank:${material.modelId ?? material.id}`
+        : material?.type === "print"
+          ? `print:${material.seriesName ?? ""}`
+          : `item:${material?.id ?? row.materialId}`;
+    const title =
+      material?.type === "blank"
+        ? (material.modelName ?? material.name)
+        : material?.type === "print"
+          ? material.seriesName || "Prints"
+          : (material?.name ?? row.materialName);
+    const group = groups.get(key);
+    if (!group) {
+      groups.set(key, { key, title, rows: [row] });
+      order.push(key);
+    } else {
+      group.rows.push(row);
+    }
+  }
+
+  return order.map((key) => {
+    const group = groups.get(key);
+    if (!group) return { key, title: key, rows: [] };
+    group.rows.sort((a, b) => {
+      const left = materialsById.get(a.materialId);
+      const right = materialsById.get(b.materialId);
+      const sizeDelta = sizeRank(left?.size ?? null) - sizeRank(right?.size ?? null);
+      if (sizeDelta !== 0) return sizeDelta;
+      return (left?.color ?? "").localeCompare(right?.color ?? "");
+    });
+    return group;
+  });
+}
+
+function sizeRank(size: string | null) {
+  const key = canonicalSize(size);
+  if (!key) return 200;
+  const index = SIZE_RANK.indexOf(key);
+  return index === -1 ? 100 : index;
+}
 
 function materialName(materials: Map<string, ReportMaterial>, id: string) {
   return materials.get(id)?.name ?? "Unknown material";
@@ -212,6 +275,7 @@ export function buildReport(input: ReportInput): InventoryReport {
         materialId: recipeLine.materialId,
         materialName: materialName(materialsById, recipeLine.materialId),
         quantity: recipeLine.quantity * line.remaining,
+        role: recipeLine.role ?? "other",
       }));
   }
 
@@ -239,6 +303,7 @@ export function buildReport(input: ReportInput): InventoryReport {
       materialName: material?.name ?? row.materialId,
       type: material?.type ?? "other",
       unit: material?.unit ?? "each",
+      modelId: material?.modelId ?? row.materialId,
     };
   });
 
@@ -295,6 +360,7 @@ export function buildReport(input: ReportInput): InventoryReport {
     onHand,
     needs,
     buyCount: needs.filter((row) => row.shortfall > 0).length,
+    buyGroups: groupBuyList(needs, materialsById),
     buildable,
     buildableGroups,
     orders,

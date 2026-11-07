@@ -8,7 +8,7 @@ import { Loading } from "@/components/loading";
 import { Notice } from "@/components/notice";
 import { RecipeLinesForm } from "@/components/recipe-lines-form";
 import { one } from "@/lib/format";
-import { loadShop } from "@/lib/inventory/load";
+import { loadShop, stockChoices } from "@/lib/inventory/load";
 import { saveCustomRecipe } from "@/server/actions/recipes";
 
 export default function CustomRecipePage({ searchParams }: PageProps<"/recipes/custom">) {
@@ -25,7 +25,8 @@ async function CustomRecipe({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const query = await searchParams;
-  const { materialRows, report } = await loadShop();
+  const shop = await loadShop();
+  const { report } = shop;
   const suggestions = [
     ...new Set(report.unmappedLines.filter((line) => !line.variantId).map((line) => line.title)),
   ];
@@ -54,11 +55,7 @@ async function CustomRecipe({
         <CardContent>
           <RecipeLinesForm
             action={saveCustomRecipe}
-            materials={materialRows.map((material) => ({
-              id: material.id,
-              name: material.name,
-              unit: material.unit,
-            }))}
+            materials={stockChoices(shop)}
             initialLines={[]}
             submitLabel="Save custom recipe"
           >

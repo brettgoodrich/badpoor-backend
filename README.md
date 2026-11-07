@@ -18,19 +18,27 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). The seed loads a fake shop (fake Shopify ids, fake orders) so the dashboard works with no token. `npm run db:seed` wipes the local database and does not call Shopify.
 
-Leave the token blank until you want a live read. The SQLite file lives at `data/inventory.sqlite` (or `DATABASE_PATH`). It is gitignored. Do not commit `.env` or a database.
+Leave the Shopify credentials blank until you want a live read. The SQLite file lives at `data/inventory.sqlite` (or `DATABASE_PATH`). It is gitignored. Do not commit `.env` or a database. The client secret and access token stay in the environment and are never written to the database or logs.
 
-## Shopify custom app
+## Shopify app
 
 The sync is read-only. Scopes: `read_orders` and `read_products`.
 
-1. In the Shopify admin, go to **Settings → Apps and sales channels → Develop apps**.
-2. Allow custom app development if the store has not already.
-3. Create an app (any name, for example “Bench materials”).
-4. Open **Configuration → Admin API integration** and select `read_orders` and `read_products`. Save.
-5. Install the app on the store and reveal the **Admin API access token** once. Copy it into `.env` as `SHOPIFY_ADMIN_ACCESS_TOKEN`.
+Since January 1, 2026, Shopify no longer lets you create a new admin custom app, so there is no static `shpat_` token to copy out of the admin. New apps are created in the Dev Dashboard and sign in with the [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant). See also [Access tokens](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens) and the [legacy custom apps](https://shopify.dev/docs/apps/build/authentication-authorization/legacy/admin-custom-apps) note.
+
+1. In the Shopify admin, go to **Settings → Apps and sales channels → Develop apps**, then **Build apps in Dev Dashboard**. You can also open it from the store name menu with **View Dev Dashboard**. ([Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard))
+2. Create an app. ([Create apps using the Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard/create-apps-using-dev-dashboard))
+3. Open the app’s **Versions** tab. Set the access scopes to `read_orders,read_products` and **Release** the version. The app needs a released version before it can be installed.
+4. Install it on the store. From Dev Dashboard **Home** (or the Apps list), open the app and choose **Install app** on the Installs card. Pick this store and confirm **Install**.
+5. Open the app’s **Settings** and copy the **Client ID** and **Client secret** into `.env` as `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`.
 6. Set `SHOPIFY_STORE_DOMAIN=feb098-c4.myshopify.com` (no `https://`, no path).
 7. Restart `npm run dev`, open **Orders**, and choose **Sync from Shopify**.
+
+The app posts `grant_type=client_credentials` with the client id and secret to `https://{shop}.myshopify.com/admin/oauth/access_token`. Shopify returns `access_token`, `scope`, and `expires_in` (86399 seconds, 24 hours). Do not send a `scope` parameter; the token carries the scopes the store granted. The token is cached in memory and requested again shortly before it expires, or once after an Admin API 401. It is not stored in SQLite.
+
+`shop_not_permitted` means the app and the store are not in the same Shopify organization. Both have to show up under the same org in the Dev Dashboard. Owning the store, or having the app installed, is not enough if they live in different orgs.
+
+If you already have a legacy static token, set `SHOPIFY_ADMIN_ACCESS_TOKEN` and the app uses it as-is instead of the client credentials grant.
 
 The query uses Admin API `2026-10`. It loads products and variants, plus orders that are open and unfulfilled or partially fulfilled, including each line’s unfulfilled quantity. Lines with no recipe are called out on the dashboard. Customer fields are not requested.
 
@@ -40,10 +48,10 @@ Protected customer data is not required for this app.
 
 ## What you can do
 
-- **Materials.** Create and edit prints, blanks, trims, and other materials (name, type, optional size and color, unit, notes). Record a purchase, a receipt, or a signed adjustment. Delete only works when nothing references the material.
-- **Recipes.** Map a whole product at once: one print for every checked size, and a blank auto-matched by size and color, with per-variant overrides. Map a custom line by its title when the line has no variant. Edit or delete a single recipe afterward.
+- **Materials.** Create a blank model with a size list and a color list. The app generates the grid. Each cell has its own on-hand. Adding a size or color creates only the missing cells. Removing one deletes it when nothing references it, and archives it when the ledger or a recipe does. Prints are their own materials and can belong to a series. Record a purchase, a receipt, or a signed adjustment, including a bulk receipt across several sizes of one color.
+- **Recipes.** Map a whole product at once: one or more prints plus a blank model. Each Shopify variant is matched to a size and color (`Small` matches `S`). Override any row. Map a custom line by its title when the line has no variant. When marking a line built, pick a different blank variant for that build only.
 - **Orders.** Read the local copy of open orders. Mark one line, or every mapped line on an order, as built. That writes consume movements for `quantity × recipe`. It does not fulfill or edit the Shopify order. Building is allowed even when stock goes negative.
-- **Dashboard.** Materials needed for what is still unbuilt, versus on hand, and the buy list. Each mapped variant shows how many could be built if you made only that variant (the scarcest material wins). When several variants share a print, the card also shows how many garments that print can cover in total. Open orders list what each line still needs, what can be built with current stock (older orders claim shared materials first), and which lines have no recipe.
+- **Dashboard.** Materials needed for what is still unbuilt, versus on hand. The buy list is grouped by blank model, then size and color, and prints are grouped by series. Each mapped variant shows how many could be built if you made only that variant (the scarcest material wins). When several variants share a print, the card also shows how many garments that print can cover in total. Open orders list what each line still needs, what can be built with current stock (older orders claim shared materials first), and which lines have no recipe.
 
 With the sample data: 15 of Print A, 10 Blank Shorts S, and 10 Blank Shorts M. Shorts S and Shorts M can each be built 10 times alone. The shared print covers 15 garments across the sizes that use it.
 
@@ -53,9 +61,10 @@ With the sample data: 15 of Print A, 10 Blank Shorts S, and 10 Blank Shorts M. S
 | --- | --- |
 | `npm run dev` | Next.js dev server |
 | `npm run db:migrate` | Apply Drizzle migrations to the local SQLite file |
+| `npm run db:reset` | Delete the local SQLite file (and its `-wal` / `-shm` sidecars) and create an empty migrated database. Does not load sample data. Stop `npm run dev` first so the server is not still holding the old file. |
 | `npm run db:generate` | Generate a new migration after a schema change |
-| `npm run db:seed` | Reset the local database with fake sample data |
-| `npm test` | Unit tests for needs, shortfall, and buildable counts |
+| `npm run db:seed` | Replace the local database with fake sample data |
+| `npm test` | Unit tests for the matrix, size aliases, build overrides, shortfall, and Shopify token caching |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | Production build |
@@ -66,11 +75,14 @@ There is no authentication. Run it on your machine. Do not expose it on the publ
 
 SQLite via better-sqlite3 and Drizzle. Migrations live in `drizzle/`.
 
-- **materials** — name, type (`print`, `blank`, `trim`, `other`), optional size and color, unit, notes.
-- **inventory_movements** — the ledger. `quantity` is signed: purchase and receipt are positive, consume is negative, adjustment is either. Optional link to a build. On hand is `sum(quantity)` per material.
-- **recipes** and **recipe_lines** — one recipe per Shopify variant, or per custom line title. Each line is a material and a quantity per finished unit.
+- **print_series** — a named group of prints, such as “PTF Uniforms 2026”, with optional notes.
+- **materials** — a blank model (for example “Gildan 64000”), a print, or a simple trim/other item. Blank models store an optional brand, style number, and a nullable `ss_style_id` for a future S&S Activewear style id. Prints can point at a series. A print has no size or color of its own.
+- **material_options** — the size list and the color list on a blank model, in order. Archived when a used axis value is removed.
+- **material_variants** — the size × color matrix, generated from those lists. Adding a size or color creates only the missing cells. Each variant has its own ledger.
+- **inventory_movements** — the ledger. `quantity` is signed. A row points at a material and, for blanks, a variant. On hand is the sum for that stock unit.
+- **recipes** and **recipe_lines** — one recipe per Shopify variant, or per custom line title. A line is a print (the material) or a blank variant, plus a quantity per finished unit. Setup matches Shopify size and color onto the blank matrix (`Small` matches `S`). A row can override that match.
 - **shopify_products**, **shopify_variants**, **shopify_orders**, **shopify_line_items** — a cache from the last sync (or from the seed). Replaced on the next sync. Recipes are not deleted when the cache is replaced.
-- **builds** — a local record that some quantity of a line was made. Remaining demand is Shopify’s unfulfilled quantity minus the sum of builds for that line. Builds do not change Shopify.
+- **builds** — a local record that some quantity of a line was made. `blank_variant_id` is the blank actually consumed, which can differ from the recipe for that one build. Builds do not change Shopify.
 
 ```text
 open line (unfulfilled − already built)
