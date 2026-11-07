@@ -9,7 +9,8 @@ import {
   type DemandLine,
   type Recipe,
 } from "./calculations";
-import { canonicalSize, resolveRecipeId, type RecipeMatch } from "./matching";
+import { canonicalSize, resolveRecipeId, type RecipeMatch, type SelectedOption } from "./matching";
+import { concreteLines, type ModelRecipeLine, type VariantOverride } from "./resolve";
 
 export type ReportMaterial = {
   id: string;
@@ -30,10 +31,11 @@ export type ReportMovement = {
 
 export type ReportRecipe = {
   id: string;
-  matchType: "variant" | "custom_title";
-  shopifyVariantId: string | null;
+  matchType: "product" | "custom_title";
+  shopifyProductId: string | null;
   customTitle: string | null;
-  lines: { materialId: string; quantity: number; role?: string }[];
+  lines: ModelRecipeLine[];
+  overrides: VariantOverride[];
 };
 
 export type ReportVariant = {
@@ -42,6 +44,7 @@ export type ReportVariant = {
   productTitle: string;
   title: string;
   sku: string | null;
+  options: SelectedOption[];
 };
 
 export type ReportOrder = {
@@ -199,19 +202,15 @@ function materialName(materials: Map<string, ReportMaterial>, id: string) {
   return materials.get(id)?.name ?? "Unknown material";
 }
 
-function recipeLabel(recipe: ReportRecipe, variants: Map<string, ReportVariant>) {
-  if (recipe.matchType === "variant" && recipe.shopifyVariantId) {
-    const variant = variants.get(recipe.shopifyVariantId);
-    if (variant) return `${variant.productTitle} · ${variant.title}`;
-  }
-  return recipe.customTitle ?? "Custom item";
-}
-
-function productTitleForRecipe(recipe: ReportRecipe, variants: Map<string, ReportVariant>) {
-  if (recipe.matchType === "variant" && recipe.shopifyVariantId) {
-    return variants.get(recipe.shopifyVariantId)?.productTitle ?? "Catalog";
-  }
-  return "Custom items";
+function blankChoices(materials: ReportMaterial[]) {
+  return materials
+    .filter((material) => material.type === "blank")
+    .map((material) => ({
+      id: material.id,
+      materialId: material.modelId ?? material.id,
+      size: material.size,
+      color: material.color,
+    }));
 }
 
 export function buildReport(input: ReportInput): InventoryReport {
@@ -224,9 +223,9 @@ export function buildReport(input: ReportInput): InventoryReport {
   }
 
   const recipeMatches: RecipeMatch[] = input.recipes;
-  const recipesById = new Map<string, Recipe>(
-    input.recipes.map((recipe) => [recipe.id, { id: recipe.id, lines: recipe.lines }]),
-  );
+  const productIdByVariant = new Map(input.variants.map((variant) => [variant.id, variant.productId]));
+  const blanks = blankChoices(input.materials);
+  const concreteByLine = new Map<string, Recipe["lines"]>();
 
   const linesByOrder = new Map<string, ReportLine[]>();
   for (const line of input.lines) {
@@ -247,29 +246,51 @@ export function buildReport(input: ReportInput): InventoryReport {
       const recipeId = resolveRecipeId(
         { variantId: line.variantId, title: line.title, name: line.name },
         recipeMatches,
+        productIdByVariant,
       );
-      demandLines.push({ id: line.id, recipeId, quantity: remaining });
+      const recipe = recipeId ? input.recipes.find((entry) => entry.id === recipeId) : undefined;
+      const variant = line.variantId ? variantsById.get(line.variantId) : undefined;
+      const resolved = recipe
+        ? concreteLines(
+            recipe,
+            {
+              shopifyVariantId: line.variantId,
+              title: variant?.title ?? line.variantTitle ?? line.name,
+              options: variant?.options ?? [],
+            },
+            blanks,
+          )
+        : null;
+      const concrete = resolved?.complete ? resolved.lines : undefined;
+      const mappedId = concrete ? recipeId : null;
+      if (concrete) concreteByLine.set(line.id, concrete);
+      demandLines.push({
+        id: line.id,
+        recipeId: mappedId,
+        quantity: remaining,
+        lines: concrete,
+      });
       lineDrafts.push({
         ...line,
         built,
         remaining,
-        recipeId,
+        recipeId: mappedId,
         canBuildNow: 0,
         needs: [],
       });
     }
   }
 
-  const demand = demandByMaterial(demandLines, recipesById);
+  const demand = demandByMaterial(demandLines, new Map());
   const allocations = new Map(
-    allocateBuilds(onHand, demandLines, recipesById).map((allocation) => [allocation.lineId, allocation.quantity]),
+    allocateBuilds(onHand, demandLines, new Map()).map((allocation) => [allocation.lineId, allocation.quantity]),
   );
 
   for (const line of lineDrafts) {
     line.canBuildNow = allocations.get(line.id) ?? 0;
-    const recipe = line.recipeId ? recipesById.get(line.recipeId) : undefined;
-    if (!recipe || line.remaining <= 0) continue;
-    line.needs = recipe.lines
+    const recipeLines = concreteByLine.get(line.id);
+    if (!recipeLines || line.remaining <= 0) continue;
+    line.needs = recipeLines
       .filter((recipeLine) => recipeLine.quantity > 0)
       .map((recipeLine) => ({
         materialId: recipeLine.materialId,
@@ -307,12 +328,13 @@ export function buildReport(input: ReportInput): InventoryReport {
     };
   });
 
-  const buildable: BuildableRow[] = input.recipes.map((recipe) => {
+  const expanded = expandRecipes(input.recipes, input.variants, blanks);
+  const buildable: BuildableRow[] = expanded.map((recipe) => {
     const result = buildableAlone(onHand, recipe);
     return {
       recipeId: recipe.id,
-      label: recipeLabel(recipe, variantsById),
-      productTitle: productTitleForRecipe(recipe, variantsById),
+      label: recipe.label,
+      productTitle: recipe.productTitle,
       count: result.count,
       limitingMaterialId: result.limitingMaterialId,
       limitingMaterialName: result.limitingMaterialId
@@ -321,10 +343,7 @@ export function buildReport(input: ReportInput): InventoryReport {
     };
   });
 
-  const caps = sharedMaterialCaps(
-    input.recipes.map((recipe) => ({ id: recipe.id, lines: recipe.lines })),
-    onHand,
-  );
+  const caps = sharedMaterialCaps(expanded, onHand);
 
   const groupOrder: string[] = [];
   const grouped = new Map<string, BuildableRow[]>();
@@ -367,6 +386,42 @@ export function buildReport(input: ReportInput): InventoryReport {
     unitsRemaining,
     unmappedLines,
   };
+}
+
+function expandRecipes(recipes: ReportRecipe[], variants: ReportVariant[], blanks: ReturnType<typeof blankChoices>) {
+  const expanded: Array<Recipe & { label: string; productTitle: string }> = [];
+  for (const recipe of recipes) {
+    if (recipe.matchType === "product" && recipe.shopifyProductId) {
+      for (const variant of variants.filter((entry) => entry.productId === recipe.shopifyProductId)) {
+        const resolved = concreteLines(
+          recipe,
+          { shopifyVariantId: variant.id, title: variant.title, options: variant.options },
+          blanks,
+        );
+        if (!resolved.complete) continue;
+        expanded.push({
+          id: `${recipe.id}:${variant.id}`,
+          label: `${variant.productTitle} · ${variant.title}`,
+          productTitle: variant.productTitle,
+          lines: resolved.lines,
+        });
+      }
+      continue;
+    }
+    const resolved = concreteLines(
+      recipe,
+      { shopifyVariantId: null, title: recipe.customTitle ?? "", options: [] },
+      blanks,
+    );
+    if (!resolved.complete) continue;
+    expanded.push({
+      id: recipe.id,
+      label: recipe.customTitle ?? "Custom item",
+      productTitle: "Custom items",
+      lines: resolved.lines,
+    });
+  }
+  return expanded;
 }
 
 export function orderById(report: InventoryReport, orderId: string) {

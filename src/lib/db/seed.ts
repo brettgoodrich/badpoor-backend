@@ -7,7 +7,9 @@ import {
   materialVariants,
   movements,
   printSeries,
+  recipeExclusions,
   recipeLines,
+  recipeOverrides,
   recipes,
   shopifyLineItems,
   shopifyOrders,
@@ -32,6 +34,8 @@ export function seedDatabase() {
   const db = openDatabase();
 
   db.transaction((tx) => {
+    tx.delete(recipeExclusions).run();
+    tx.delete(recipeOverrides).run();
     tx.delete(recipeLines).run();
     tx.delete(recipes).run();
     tx.delete(movements).run();
@@ -153,32 +157,44 @@ export function seedDatabase() {
         exampleInput.recipes.map((recipe) => ({
           id: recipe.id,
           matchType: recipe.matchType,
-          shopifyVariantId: recipe.shopifyVariantId,
+          shopifyProductId: recipe.shopifyProductId,
           customTitle: recipe.customTitle,
-          notes: "Sample recipe: Print A or B plus the matching blank variant.",
+          notes: "Sample recipe: one print plus a whole blank. Navy cells are unchecked on the shorts.",
           createdAt: CREATED,
           updatedAt: CREATED,
         })),
       )
       .run();
 
-    const blankIds = new Set(variantRows.map((variant) => variant.id));
+    const lineRows = exampleInput.recipes.flatMap((recipe) =>
+      recipe.lines.map((line, index) => ({
+        id: `${recipe.id}_line_${index + 1}`,
+        recipeId: recipe.id,
+        materialId: line.materialId,
+        role: line.role,
+        quantity: line.quantity,
+        excludedVariantIds: line.excludedVariantIds ?? [],
+      })),
+    );
     tx.insert(recipeLines)
       .values(
-        exampleInput.recipes.flatMap((recipe) =>
-          recipe.lines.map((line, index) => ({
-            id: `${recipe.id}_line_${index + 1}`,
-            recipeId: recipe.id,
-            materialId: blankIds.has(line.materialId)
-              ? variantRows.find((variant) => variant.id === line.materialId)?.materialId ?? line.materialId
-              : line.materialId,
-            variantId: blankIds.has(line.materialId) ? line.materialId : null,
-            role: line.materialId.startsWith("mat_print") ? "print" : blankIds.has(line.materialId) ? "blank" : "other",
-            quantity: line.quantity,
-          })),
-        ),
+        lineRows.map((line) => ({
+          id: line.id,
+          recipeId: line.recipeId,
+          materialId: line.materialId,
+          role: line.role,
+          quantity: line.quantity,
+        })),
       )
       .run();
+    const exclusions = lineRows.flatMap((line) =>
+      line.excludedVariantIds.map((variantId) => ({
+        id: `${line.id}_ex_${variantId}`,
+        recipeLineId: line.id,
+        variantId,
+      })),
+    );
+    if (exclusions.length > 0) tx.insert(recipeExclusions).values(exclusions).run();
 
     tx.insert(builds)
       .values(

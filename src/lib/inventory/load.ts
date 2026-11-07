@@ -8,7 +8,9 @@ import {
   materialVariants,
   movements,
   printSeries,
+  recipeExclusions,
   recipeLines,
+  recipeOverrides,
   recipes,
   shopifyLineItems,
   shopifyOrders,
@@ -88,6 +90,8 @@ export const loadShop = cache(async () => {
   const movementRows = db.select().from(movements).orderBy(asc(movements.createdAt), asc(movements.id)).all();
   const recipeRows = db.select().from(recipes).all();
   const recipeLineRows = db.select().from(recipeLines).all();
+  const exclusionRows = db.select().from(recipeExclusions).all();
+  const overrideRows = db.select().from(recipeOverrides).all();
   const productRows = db.select().from(shopifyProducts).orderBy(asc(shopifyProducts.title)).all();
   const variantRows = db.select().from(shopifyVariants).orderBy(asc(shopifyVariants.productTitle), asc(shopifyVariants.title)).all();
   const orderRows = db.select().from(shopifyOrders).orderBy(asc(shopifyOrders.createdAt)).all();
@@ -136,13 +140,17 @@ export const loadShop = cache(async () => {
 
   const recipesForReport: ReportRecipe[] = recipeRows.map((recipe) => ({
     id: recipe.id,
-    matchType: recipe.matchType === "custom_title" ? "custom_title" : "variant",
-    shopifyVariantId: recipe.shopifyVariantId,
+    matchType: recipe.matchType === "custom_title" ? "custom_title" : "product",
+    shopifyProductId: recipe.shopifyProductId,
     customTitle: recipe.customTitle,
+    overrides: overrideRows
+      .filter((override) => override.recipeId === recipe.id)
+      .map((override) => ({ shopifyVariantId: override.shopifyVariantId, blankVariantId: override.blankVariantId })),
     lines: (linesByRecipe.get(recipe.id) ?? []).map((line) => ({
-      materialId: stockId(line.materialId, line.variantId),
+      materialId: line.materialId,
       quantity: line.quantity,
       role: line.role,
+      excludedVariantIds: exclusionRows.filter((exclusion) => exclusion.recipeLineId === line.id).map((exclusion) => exclusion.variantId),
     })),
   }));
 
@@ -159,6 +167,7 @@ export const loadShop = cache(async () => {
       productTitle: variant.productTitle,
       title: variant.title,
       sku: variant.sku,
+      options: parseOptions(variant.selectedOptions),
     })),
     orders: orderRows.map((order) => ({
       id: order.id,
@@ -199,6 +208,8 @@ export const loadShop = cache(async () => {
     movementRows,
     recipeRows,
     recipeLineRows,
+    exclusionRows,
+    overrideRows,
     productRows,
     variantRows,
     orderRows,

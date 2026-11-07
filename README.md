@@ -48,10 +48,10 @@ Protected customer data is not required for this app.
 
 ## What you can do
 
-- **Materials.** Create a blank model with a size list and a color list. The app generates the grid. Each cell has its own on-hand. Adding a size or color creates only the missing cells. Removing one deletes it when nothing references it, and archives it when the ledger or a recipe does. Prints are their own materials and can belong to a series. Record a purchase, a receipt, or a signed adjustment, including a bulk receipt across several sizes of one color.
-- **Recipes.** Map a whole product at once: one or more prints plus a blank model. Each Shopify variant is matched to a size and color (`Small` matches `S`). Override any row. Map a custom line by its title when the line has no variant. When marking a line built, pick a different blank variant for that build only.
+- **Materials.** Create a blank with a size list and a color list. The app generates the grid. Each cell has its own on-hand. Adding a size or color creates only the missing cells. Removing one deletes it when nothing references it, and archives it when the ledger or a recipe does. Prints are their own materials and can belong to a series. Record a purchase, a receipt, or a signed adjustment, including a bulk receipt across several sizes of one color.
+- **Recipes.** Map a whole Shopify product at once: a print plus a blank. Every size and color of that blank applies unless you uncheck it. Shopify variants match by size and color (`Small` matches `S`). Override any variant, or pick a different blank variant for one build only. Map a custom line by its title when the line has no variant.
 - **Orders.** Read the local copy of open orders. Mark one line, or every mapped line on an order, as built. That writes consume movements for `quantity × recipe`. It does not fulfill or edit the Shopify order. Building is allowed even when stock goes negative.
-- **Dashboard.** Materials needed for what is still unbuilt, versus on hand. The buy list is grouped by blank model, then size and color, and prints are grouped by series. Each mapped variant shows how many could be built if you made only that variant (the scarcest material wins). When several variants share a print, the card also shows how many garments that print can cover in total. Open orders list what each line still needs, what can be built with current stock (older orders claim shared materials first), and which lines have no recipe.
+- **Dashboard.** Materials needed for what is still unbuilt, versus on hand. The buy list is grouped by blank, then size and color, and prints are grouped by series. Each mapped variant shows how many could be built if you made only that variant (the scarcest material wins). When several variants share a print, the card also shows how many garments that print can cover in total. Open orders list what each line still needs, what can be built with current stock (older orders claim shared materials first), and which lines have no recipe.
 
 With the sample data: 15 of Print A, 10 Blank Shorts S, and 10 Blank Shorts M. Shorts S and Shorts M can each be built 10 times alone. The shared print covers 15 garments across the sizes that use it.
 
@@ -76,11 +76,13 @@ There is no authentication. Run it on your machine. Do not expose it on the publ
 SQLite via better-sqlite3 and Drizzle. Migrations live in `drizzle/`.
 
 - **print_series** — a named group of prints, such as “PTF Uniforms 2026”, with optional notes.
-- **materials** — a blank model (for example “Gildan 64000”), a print, or a simple trim/other item. Blank models store an optional brand, style number, and a nullable `ss_style_id` for a future S&S Activewear style id. Prints can point at a series. A print has no size or color of its own.
-- **material_options** — the size list and the color list on a blank model, in order. Archived when a used axis value is removed.
+- **materials** — a blank (for example “Gildan 64000”), a print, or a simple trim/other item. Blanks store an optional brand, style number, and a nullable `ss_style_id` for a future S&S Activewear style id. Prints can point at a series. A print has no size or color of its own.
+- **material_options** — the size list and the color list on a blank, in order. Archived when a used axis value is removed.
 - **material_variants** — the size × color matrix, generated from those lists. Adding a size or color creates only the missing cells. Each variant has its own ledger.
 - **inventory_movements** — the ledger. `quantity` is signed. A row points at a material and, for blanks, a variant. On hand is the sum for that stock unit.
-- **recipes** and **recipe_lines** — one recipe per Shopify variant, or per custom line title. A line is a print (the material) or a blank variant, plus a quantity per finished unit. Setup matches Shopify size and color onto the blank matrix (`Small` matches `S`). A row can override that match.
+- **recipes** and **recipe_lines** — one recipe per Shopify product, or per custom line title. A line is a print or a whole blank, plus a quantity per finished unit.
+- **recipe_exclusions** — blank variants that do not apply to that recipe, so another product can use the other colors.
+- **recipe_overrides** — an optional blank variant for one Shopify variant, instead of the size and color match.
 - **shopify_products**, **shopify_variants**, **shopify_orders**, **shopify_line_items** — a cache from the last sync (or from the seed). Replaced on the next sync. Recipes are not deleted when the cache is replaced.
 - **builds** — a local record that some quantity of a line was made. `blank_variant_id` is the blank actually consumed, which can differ from the recipe for that one build. Builds do not change Shopify.
 

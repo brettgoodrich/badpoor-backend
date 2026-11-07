@@ -180,12 +180,11 @@ describe("sample shop", () => {
   const report = buildReport(exampleInput);
 
   it("keeps the print-and-blank example on the buildable board", () => {
-    const byRecipe = new Map(report.buildable.map((row) => [row.recipeId, row]));
-    expect(byRecipe.get("recipe_shorts_s")).toMatchObject({
+    expect(report.buildable.find((row) => row.label === "HCS Gym Shorts · S")).toMatchObject({
       count: 10,
       limitingMaterialName: "Gildan 64000 · S / Black",
     });
-    expect(byRecipe.get("recipe_shorts_m")).toMatchObject({
+    expect(report.buildable.find((row) => row.label === "HCS Gym Shorts · M")).toMatchObject({
       count: 10,
       limitingMaterialName: "Gildan 64000 · M / Black",
     });
