@@ -5,6 +5,7 @@ import { redirectWith, refreshShop } from "@/lib/action";
 import { getDb } from "@/lib/db";
 import {
   builds,
+  finishedMovements,
   materialVariants,
   movements,
   recipeExclusions,
@@ -16,12 +17,58 @@ import {
   shopifyVariants,
 } from "@/lib/db/schema";
 import { orderPath, readString } from "@/lib/format";
-import { consumptionForBuild } from "@/lib/inventory/calculations";
+import { consumptionForBuild, onHandByVariant } from "@/lib/inventory/calculations";
 import { resolveRecipeId } from "@/lib/inventory/matching";
 import { parseOptions } from "@/lib/inventory/load";
 import { concreteLines } from "@/lib/inventory/resolve";
 
 type Database = Awaited<ReturnType<typeof getDb>>;
+
+function finishedOnHand(database: Database, shopifyVariantId: string) {
+  const rows = database.select().from(finishedMovements).where(eq(finishedMovements.shopifyVariantId, shopifyVariantId)).all();
+  return onHandByVariant(rows).get(shopifyVariantId) ?? 0;
+}
+
+function recordFulfill(database: Database, lineItemId: string, quantity: number, note: string) {
+  database.transaction((tx) => {
+    const line = tx.select().from(shopifyLineItems).where(eq(shopifyLineItems.id, lineItemId)).get();
+    if (!line) throw new Error("That line is not in the local order copy.");
+    if (!line.variantId) throw new Error(`${line.name} has no Shopify variant, so it cannot come from finished stock.`);
+    const already = tx
+      .select()
+      .from(builds)
+      .where(eq(builds.lineItemId, lineItemId))
+      .all()
+      .reduce((sum, build) => sum + build.quantity, 0);
+    const remaining = Math.max(0, line.unfulfilledQuantity - already);
+    if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("Enter a whole number of garments.");
+    if (quantity > remaining) throw new Error(`Only ${remaining} of ${line.name} still need to be fulfilled.`);
+    const have = onHandByVariant(
+      tx.select().from(finishedMovements).where(eq(finishedMovements.shopifyVariantId, line.variantId)).all(),
+    ).get(line.variantId) ?? 0;
+    if (have < quantity) {
+      throw new Error(`Only ${have} finished ${line.name} on hand. Build the rest now.`);
+    }
+    const buildId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const order = tx.select().from(shopifyOrders).where(eq(shopifyOrders.id, line.orderId)).get();
+    const detail = note || `Used ${quantity} finished for ${order?.name ?? "an order"} · ${line.name}. Materials were not consumed. Shopify was not changed.`;
+    tx.insert(builds)
+      .values({ id: buildId, orderId: line.orderId, lineItemId, quantity, note: detail, blankVariantId: null, createdAt: now })
+      .run();
+    tx.insert(finishedMovements)
+      .values({
+        id: crypto.randomUUID(),
+        shopifyVariantId: line.variantId,
+        type: "fulfill",
+        quantity: -quantity,
+        note: detail,
+        buildId,
+        createdAt: now,
+      })
+      .run();
+  });
+}
 
 function recordBuild(database: Database, lineItemId: string, quantity: number, note: string, blankOverrideId: string | null) {
   database.transaction((tx) => {
@@ -147,14 +194,25 @@ export async function markLineBuilt(formData: FormData) {
   if (!lineItemId) redirectWith("/orders", "error", "Missing line item.");
 
   const database = await getDb();
+  const source = readString(formData, "source") === "finished" ? "finished" : "build";
   try {
-    recordBuild(database, lineItemId, quantity, readString(formData, "note"), readString(formData, "blankVariantId") || null);
+    if (source === "finished") {
+      recordFulfill(database, lineItemId, quantity, readString(formData, "note"));
+    } else {
+      recordBuild(database, lineItemId, quantity, readString(formData, "note"), readString(formData, "blankVariantId") || null);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not record the build.";
     redirectWith(back, "error", message);
   }
   refreshShop();
-  redirectWith(back, "notice", "Marked built. Materials were consumed in the ledger. Shopify was not changed.");
+  redirectWith(
+    back,
+    "notice",
+    source === "finished"
+      ? "Marked fulfilled from finished stock. Materials were not consumed. Shopify was not changed."
+      : "Marked built. Materials were consumed in the ledger. Shopify was not changed.",
+  );
 }
 
 export async function markOrderBuilt(formData: FormData) {
@@ -206,8 +264,13 @@ export async function markOrderBuilt(formData: FormData) {
   let builtCount = 0;
   let unmatched = 0;
   for (const target of targets) {
+    const line = lines.find((entry) => entry.id === target.id);
+    const fromStock = line?.variantId ? Math.max(0, Math.floor(finishedOnHand(database, line.variantId))) : 0;
+    const finishedQty = Math.min(target.quantity, fromStock);
+    const buildQty = target.quantity - finishedQty;
     try {
-      recordBuild(database, target.id, target.quantity, "", null);
+      if (finishedQty > 0) recordFulfill(database, target.id, finishedQty, "");
+      if (buildQty > 0) recordBuild(database, target.id, buildQty, "", null);
       builtCount += 1;
     } catch {
       unmatched += 1;

@@ -85,9 +85,11 @@ SQLite via better-sqlite3 and Drizzle. Migrations live in `drizzle/`.
 - **recipe_overrides** — an optional blank variant for one Shopify variant, instead of the size and color match.
 - **shopify_products**, **shopify_variants**, **shopify_orders**, **shopify_line_items** — a cache from the last sync (or from the seed). Replaced on the next sync. Recipes are not deleted when the cache is replaced.
 - **builds** — a local record that some quantity of a line was made. `blank_variant_id` is the blank actually consumed, which can differ from the recipe for that one build. Builds do not change Shopify.
+- **finished_movements** — on-hand completed garments per Shopify variant. Make-ahead adds stock and consumes materials. Fulfilling from that stock does not. An adjustment corrects the count and stores a note. Nothing here is written back to Shopify.
 
 ```text
 open line (unfulfilled − already built)
+        − finished stock for that variant
         × recipe lines
         = material demand
 

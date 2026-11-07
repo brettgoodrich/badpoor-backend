@@ -3,11 +3,17 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { FormToggles } from "@/components/create-disclosure";
+import { Field } from "@/components/field";
 import { Loading } from "@/components/loading";
 import { ModelRecipeForm } from "@/components/model-recipe-form";
+import { NativeSelect } from "@/components/native-select";
 import { Notice } from "@/components/notice";
 import { one } from "@/lib/format";
 import { loadShop, parseOptions } from "@/lib/inventory/load";
+import { concreteLines } from "@/lib/inventory/resolve";
+import { adjustFinished, makeAhead } from "@/server/actions/finished";
 import { deleteRecipe, updateRecipe } from "@/server/actions/recipes";
 
 export default function RecipePage({ params, searchParams }: PageProps<"/recipes/[id]">) {
@@ -69,6 +75,47 @@ async function RecipeScreen({
           archived: Boolean(variant.archivedAt),
         })),
     }));
+  const modelRecipe = {
+    lines: lines.map((line) => ({
+      materialId: line.materialId,
+      role: line.role,
+      quantity: line.quantity,
+      excludedVariantIds: shop.exclusionRows
+        .filter((exclusion) => exclusion.recipeLineId === line.id)
+        .map((exclusion) => exclusion.variantId),
+    })),
+    overrides: shop.overrideRows
+      .filter((override) => override.recipeId === recipe.id)
+      .map((override) => ({ shopifyVariantId: override.shopifyVariantId, blankVariantId: override.blankVariantId })),
+  };
+  const cells = shop.variantRows
+    .filter((variant) => variant.productId === recipe.shopifyProductId)
+    .flatMap((variant) => {
+      const resolved = concreteLines(
+        modelRecipe,
+        { shopifyVariantId: variant.id, title: variant.title, options: parseOptions(variant.selectedOptions) },
+        shop.blankVariantRows,
+      );
+      if (!resolved.complete) return [];
+      const blankId = resolved.lines.find((line) => line.role === "blank")?.materialId;
+      const blank = shop.blankVariantRows.find((entry) => entry.id === blankId);
+      return [
+        {
+          id: variant.id,
+          title: variant.title,
+          size: blank?.size ?? variant.title,
+          color: blank?.color ?? "One color",
+          onHand: shop.report.finishedOnHand.get(variant.id) ?? 0,
+        },
+      ];
+    });
+  const colors = [...new Set(cells.map((cell) => cell.color))];
+  const sizeOrder = ["YXS", "YS", "YM", "YL", "YXL", "XS", "S", "M", "L", "XL", "2XL"];
+  const sizes = [...new Set(cells.map((cell) => cell.size))].sort((a, b) => {
+    const left = sizeOrder.indexOf(a.toUpperCase());
+    const right = sizeOrder.indexOf(b.toUpperCase());
+    return (left === -1 ? 50 : left) - (right === -1 ? 50 : right);
+  });
 
   return (
     <>
@@ -84,6 +131,133 @@ async function RecipeScreen({
         </p>
       </div>
       <Notice notice={one(query.notice)} error={one(query.error)} />
+      {cells.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Finished stock</CardTitle>
+            <CardDescription>
+              Garments already made. Making more consumes the print and the matched blank. An adjustment only changes this count.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead>
+                  <tr>
+                    <th className="p-2 text-left font-medium text-muted-foreground">Color</th>
+                    {sizes.map((size) => (
+                      <th key={size} className="p-2 text-center font-medium">
+                        {size}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {colors.map((color) => (
+                    <tr key={color} className="border-t border-border">
+                      <th className="p-2 text-left font-medium">{color}</th>
+                      {sizes.map((size) => {
+                        const cell = cells.find((entry) => entry.color === color && entry.size === size);
+                        return (
+                          <td key={size} className="p-2 text-center tabular-nums">
+                            {cell ? cell.onHand : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <FormToggles
+              forms={[
+                {
+                  label: "Make ahead",
+                  content: (
+                    <form action={makeAhead} className="grid gap-4">
+                      <input type="hidden" name="recipeId" value={recipe.id} />
+                      <p className="text-sm text-muted-foreground">
+                        Enter how many to make. Empty cells are skipped. The print and matched blank are consumed.
+                      </p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[520px] text-sm">
+                          <thead>
+                            <tr>
+                              <th className="p-2 text-left font-medium text-muted-foreground">Color</th>
+                              {sizes.map((size) => (
+                                <th key={size} className="p-2 text-center font-medium">
+                                  {size}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {colors.map((color) => (
+                              <tr key={color} className="border-t border-border">
+                                <th className="p-2 text-left font-medium">{color}</th>
+                                {sizes.map((size) => {
+                                  const cell = cells.find((entry) => entry.color === color && entry.size === size);
+                                  return (
+                                    <td key={size} className="p-2">
+                                      {cell ? (
+                                        <Input
+                                          name={`qty:${cell.id}`}
+                                          inputMode="numeric"
+                                          aria-label={`Make ${cell.size} / ${cell.color}`}
+                                          placeholder="0"
+                                          className="text-center"
+                                        />
+                                      ) : (
+                                        <span className="block text-center text-muted-foreground">—</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <Field label="Note">
+                        <Input name="note" placeholder="Made a run of black before the orders landed" />
+                      </Field>
+                      <Button type="submit" className="w-fit">
+                        Make ahead
+                      </Button>
+                    </form>
+                  ),
+                },
+                {
+                  label: "Adjust finished stock",
+                  content: (
+                    <form action={adjustFinished} className="grid max-w-md gap-3">
+                      <input type="hidden" name="recipeId" value={recipe.id} />
+                      <Field label="Variant">
+                        <NativeSelect name="shopifyVariantId" defaultValue={cells[0]?.id ?? ""}>
+                          {cells.map((cell) => (
+                            <option key={cell.id} value={cell.id}>
+                              {cell.size} / {cell.color} · {cell.onHand} on hand
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      </Field>
+                      <Field label="Change" hint="Negative numbers count stock down. Materials are not touched.">
+                        <Input name="quantity" inputMode="numeric" required placeholder="-1" />
+                      </Field>
+                      <Field label="Reason">
+                        <Input name="note" required placeholder="Counted the shelf" />
+                      </Field>
+                      <Button type="submit" className="w-fit">
+                        Adjust
+                      </Button>
+                    </form>
+                  ),
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>Materials</CardTitle>

@@ -171,6 +171,10 @@ export const exampleInput: ReportInput = {
       note: "Sample build recorded locally. Shopify was not updated.",
     },
   ],
+  finished: [
+    { shopifyVariantId: "gid://shopify/ProductVariant/9102", quantity: 3 },
+    { shopifyVariantId: "gid://shopify/ProductVariant/9201", quantity: 1 },
+  ],
 };
 
 function stock(

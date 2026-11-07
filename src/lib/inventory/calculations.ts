@@ -20,6 +20,7 @@ export type DemandLine = {
   quantity: number;
   /** Concrete stock lines for this order line. When set, they replace the shared recipe. */
   lines?: RecipeLine[];
+  variantId?: string | null;
 };
 
 export type MaterialNeed = {
@@ -47,6 +48,11 @@ export type Allocation = {
   quantity: number;
 };
 
+export type FinishedMovement = {
+  shopifyVariantId: string;
+  quantity: number;
+};
+
 /** Quantities are shop-floor counts. Round so 0.1 + 0.2 does not drift. */
 export function roundQty(value: number) {
   return Math.round(value * 1_000_000) / 1_000_000;
@@ -58,6 +64,50 @@ export function onHandByMaterial(movements: Movement[]) {
     totals.set(movement.materialId, roundQty((totals.get(movement.materialId) ?? 0) + movement.quantity));
   }
   return totals;
+}
+
+export function onHandByVariant(movements: FinishedMovement[]) {
+  const totals = new Map<string, number>();
+  for (const movement of movements) {
+    totals.set(
+      movement.shopifyVariantId,
+      roundQty((totals.get(movement.shopifyVariantId) ?? 0) + movement.quantity),
+    );
+  }
+  return totals;
+}
+
+/**
+ * Oldest lines claim finished garments first. Returns how many of each line
+ * are covered, and does not use the same unit twice.
+ */
+export function coverWithFinished(
+  lines: { id: string; variantId: string | null; quantity: number }[],
+  finished: Map<string, number>,
+) {
+  const stock = new Map(finished);
+  const covered = new Map<string, number>();
+  for (const line of lines) {
+    const available = line.variantId ? Math.max(0, stock.get(line.variantId) ?? 0) : 0;
+    const take = line.quantity > 0 ? Math.min(Math.floor(line.quantity), Math.floor(available)) : 0;
+    if (line.variantId && take > 0) stock.set(line.variantId, roundQty(available - take));
+    covered.set(line.id, take);
+  }
+  return covered;
+}
+
+/** Materials that would be below zero after these signed movements. */
+export function deficitsAfter(onHand: Map<string, number>, movements: Movement[]) {
+  const next = new Map(onHand);
+  const touched = new Set<string>();
+  for (const movement of movements) {
+    touched.add(movement.materialId);
+    next.set(movement.materialId, roundQty((next.get(movement.materialId) ?? 0) + movement.quantity));
+  }
+  return [...touched].flatMap((materialId) => {
+    const quantity = next.get(materialId) ?? 0;
+    return quantity < 0 ? [{ materialId, quantity }] : [];
+  });
 }
 
 /** Units still to make: Shopify's unfulfilled count, minus what we already recorded as built. */

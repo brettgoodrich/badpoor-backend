@@ -41,8 +41,8 @@ async function Dashboard({
           <p className="text-xs font-medium tracking-[0.16em] text-primary uppercase">Shop floor</p>
           <h1 className="mt-1 font-heading text-4xl tracking-tight">What to cut, and what to buy</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Finished uniforms stay on Shopify. This bench tracks the prints and blanks they are made from.
-            On hand is the ledger total. A negative count is already a shortfall to buy.
+            Shopify stays the order book. Finished garments you make ahead are counted here and cover open orders before the buy list.
+            A negative material count is already a shortfall to buy.
           </p>
         </div>
       </div>
@@ -58,6 +58,43 @@ async function Dashboard({
           detail={report.unmappedLines.length > 0 ? "They are not in the buy list yet" : "Every open line is mapped"}
         />
       </section>
+
+      {report.finishedSummary.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Finished on hand</CardTitle>
+            <CardDescription>These already-made garments cover open orders before any print or blank is added to the buy list.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Variant</TableHead>
+                  <TableHead className="text-right">On hand</TableHead>
+                  <TableHead className="text-right">Covering orders</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {report.finishedSummary.map((row) => (
+                  <TableRow key={row.shopifyVariantId}>
+                    <TableCell>
+                      {row.recipeId ? (
+                        <Link href={`/recipes/${row.recipeId}`} className="font-medium hover:underline">
+                          {row.label}
+                        </Link>
+                      ) : (
+                        row.label
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{row.onHand}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.covering > 0 ? row.covering : "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {report.unmappedLines.length > 0 ? (
         <Card className="border-destructive/40 bg-destructive/10">
@@ -223,7 +260,10 @@ async function Dashboard({
                       </span>
                       <span className="text-right tabular-nums">
                         <span className="block">{line.remaining} left</span>
-                        {line.recipeId && line.remaining > 0 ? (
+                        {line.finishedCover > 0 ? (
+                          <span className="block text-muted-foreground">{line.finishedCover} from stock</span>
+                        ) : null}
+                        {line.recipeId && line.canBuildNow > 0 ? (
                           <span className="text-muted-foreground">can build {line.canBuildNow}</span>
                         ) : null}
                       </span>
